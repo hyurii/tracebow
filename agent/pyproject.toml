@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracebow-agent"
+version = "0.1.0"
+description = "Agent orchestration and RAG engine for CI/CD root cause analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.20",
+    "langchain-ollama>=0.0.1",
+    "qdrant-client>=1.7.0",
+    "neo4j>=5.15.0",
+    "httpx>=0.26.0",
+    "python-slack-sdk>=3.26.0",
+    "atlassian-python-api>=3.41.0",
+    "PyGithub>=2.1.0",
+    "sentence-transformers>=2.2.0",
+    "rank-bm25>=0.2.2",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

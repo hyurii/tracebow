@@ -1,0 +1,38 @@
+# Tracebow AI RCA Integration - GitHub Actions
+# This workflow runs when your main CI workflow completes (including failures).
+#
+# Add to .github/workflows/ai-rca-trigger.yml
+#
+# Prerequisites:
+# - TRACEBOW_WEBHOOK_URL secret (e.g. http://your-tracebow-host:8080/api/webhooks/failure)
+# - GITHUB_TOKEN (default) for fetching workflow logs
+
+name: AI RCA on Failure
+
+on:
+  workflow_run:
+    workflows: ["CI", "build", "test"]  # Adjust to your primary CI workflow names
+    types:
+      - completed
+
+jobs:
+  trigger-rca:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Notify Tracebow
+        env:
+          WEBHOOK_URL: ${{ secrets.TRACEBOW_WEBHOOK_URL }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          payload=$(jq -n \
+            --arg source "github" \
+            --arg repo "$REPO" \
+            --arg run_id "$RUN_ID" \
+            --arg pr "$PR_NUMBER" \
+            '{source: $source, repo: $repo, run_id: $run_id, pr_number: $pr}')
+          curl -s -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$payload" || true

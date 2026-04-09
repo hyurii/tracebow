@@ -1,0 +1,98 @@
+# Tracebow — fully portable, zero-egress AI stack.
+# One docker-compose.yml runs everywhere: Mac laptops, Windows + Docker Desktop,
+# cheap standard EC2 (t3, m5, c6i — Intel/AMD x86). No ARM/Graviton required.
+#
+# Ollama auto-detects hardware at runtime:
+#   macOS Apple Silicon  → Metal GPU acceleration (M1–M4, unified memory)
+#   Windows + NVIDIA GPU → CUDA acceleration (RTX, etc.)
+#   Windows / Linux CPU  → AVX2 fallback (plenty fast for quantized 3B models)
+#   Linux + NVIDIA GPU   → overlay docker-compose.gpu.yml (see below)
+#
+# Runtime:
+#   CPU (default):  docker compose up -d
+#   NVIDIA GPU:     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#                   (or COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml in .env)
+#
+# Models pulled once on startup via ollama-pull (idempotent):
+#   phi4-mini        — deep coding, stack traces, pipeline RCA
+#   llama3.2:3b      — fast chat, Jira/Slack RAG summarization
+#   nomic-embed-text — embeddings (RAG)
+
+name: tracebow
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for i in $$(seq 1 60); do
+          if ollama list >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+        ollama pull phi4-mini
+        ollama pull llama3.2:3b
+        ollama pull nomic-embed-text
+    restart: "no"
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+    volumes:
+      - neo4j_data:/data
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+
+  agent:
+    build: ./agent
+    ports:
+      - "${API_PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      QDRANT_HOST: qdrant
+      NEO4J_URI: bolt://neo4j:7687
+    depends_on:
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_started
+
+  portal:
+    build: ./portal
+    ports:
+      - "${PORTAL_PORT:-3000}:80"
+    depends_on:
+      - agent
+
+volumes:
+  ollama_data:
+  qdrant_data:
+  neo4j_data:

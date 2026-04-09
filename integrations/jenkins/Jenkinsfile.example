@@ -1,0 +1,45 @@
+// Tracebow AI RCA Integration - Jenkins Declarative Pipeline
+// Add this post block to your Jenkinsfile to trigger local AI root cause analysis on failure.
+//
+// Prerequisites:
+// - Tracebow portal running (default: http://localhost:8080)
+// - TRACEBOW_WEBHOOK_URL set in Jenkins credentials or environment
+
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                sh 'echo "Building..."'
+                sh 'make build'
+            }
+        }
+        stage('Test') {
+            steps {
+                sh 'make test'
+            }
+        }
+    }
+    post {
+        failure {
+            script {
+                def webhookUrl = env.TRACEBOW_WEBHOOK_URL ?: 'http://host.docker.internal:8080/api/webhooks/failure'
+                def payload = [
+                    source: 'jenkins',
+                    job_name: env.JOB_NAME,
+                    build_number: env.BUILD_NUMBER,
+                    git_commit: env.GIT_COMMIT ?: '',
+                    workspace: env.WORKSPACE ?: '',
+                    console_url: "${env.BUILD_URL}console"
+                ]
+                def json = groovy.json.JsonOutput.toJson(payload)
+                sh """
+                    curl -s -X POST '${webhookUrl}' \
+                        -H 'Content-Type: application/json' \
+                        -d '${json}' \
+                        || true
+                """
+            }
+        }
+    }
+}
