@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
-import { useState, useEffect } from "react";
 import { FailuresList } from "../components/FailuresList";
 import type { Failure } from "../types";
-import type { Failure } from "../components/Dashboard";
 
 export default function Failures() {
   const [failures, setFailures] = useState<Failure[]>([]);

@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  # reviewdog/action-actionlint reads the PR diff and posts check results
+  pull-requests: read
+  checks: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,7 +38,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: uv sync --dev
+      - run: uv sync --frozen
 
       - name: Ruff format check
         run: uv run ruff format --check .
@@ -64,7 +67,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: uv sync --dev
+      - run: uv sync --frozen
 
       - name: Pytest
         run: uv run pytest --tb=short -q
@@ -172,6 +175,7 @@ jobs:
   docker-build:
     name: "Docker: build smoke test"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       matrix:
         component: [agent, portal]

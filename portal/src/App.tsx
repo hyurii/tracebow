@@ -7,13 +7,13 @@ import Settings from "./pages/Settings";
 
 export default function App() {
   return (
-    <Layout>
-      <Routes>
+    <Routes>
+      <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/failures" element={<Failures />} />
         <Route path="/settings" element={<Settings />} />
-      </Routes>
-    </Layout>
+      </Route>
+    </Routes>
   );
 }

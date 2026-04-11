@@ -100,7 +100,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: uv sync --dev
+      - run: uv sync --frozen
 
       - name: pip-audit
         run: uv run pip-audit
