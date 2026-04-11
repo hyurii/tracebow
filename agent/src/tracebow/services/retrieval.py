@@ -2,7 +2,7 @@
 Retrieval Service - Hybrid RAG (vector + BM25) for semantic and keyword search.
 
 Handles:
-- Dense vector search (Qdrant) for semantic similarity
+- Dense vector search (ChromaDB) for semantic similarity
 - Sparse BM25 for exact error codes, trace IDs, variable names
 - Source filtering (logs, jira, slack)
 """
@@ -11,18 +11,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    PointStruct,
-    VectorParams,
-    Distance,
-    Filter,
-    FieldCondition,
-    MatchValue,
-)
-from qdrant_client.http import models as qmodels
+import chromadb
 
-# Optional: rank-bm25 for local BM25 (fallback if Qdrant doesn't support hybrid)
 try:
     from rank_bm25 import BM25Okapi
 except ImportError:
@@ -42,21 +32,31 @@ class RetrievalService:
 
     def __init__(
         self,
-        host: str = "qdrant",
-        port: int = 6333,
+        host: str = "chromadb",
+        port: int = 8000,
         embedding_dim: int = 384,
     ):
         self._host = host
         self._port = port
         self._embedding_dim = embedding_dim
-        self._client: QdrantClient | None = None
+        self._client: chromadb.HttpClient | None = None
+        self._collection: chromadb.Collection | None = None
         self._bm25: BM25Okapi | None = None
         self._bm25_corpus: list[tuple[str, dict]] = []  # (text, metadata)
 
-    def _get_client(self) -> QdrantClient:
+    def _get_client(self) -> chromadb.HttpClient:
         if self._client is None:
-            self._client = QdrantClient(host=self._host, port=self._port)
+            self._client = chromadb.HttpClient(host=self._host, port=self._port)
         return self._client
+
+    def _get_collection(self) -> chromadb.Collection:
+        if self._collection is None:
+            client = self._get_client()
+            self._collection = client.get_or_create_collection(
+                name=self.COLLECTION,
+                metadata={"hnsw:space": "cosine"},
+            )
+        return self._collection
 
     async def hybrid_search(
         self,
@@ -84,21 +84,11 @@ class RetrievalService:
         )
 
     async def ensure_collection(self) -> None:
-        """Create collection if not exists."""
+        """Create collection if not exists (get_or_create is idempotent)."""
         try:
-            client = self._get_client()
-            collections = client.get_collections().collections
-            if not any(c.name == self.COLLECTION for c in collections):
-                client.create_collection(
-                    collection_name=self.COLLECTION,
-                    vectors_config=VectorParams(
-                        size=self._embedding_dim,
-                        distance=Distance.COSINE,
-                    ),
-                )
+            self._get_collection()
         except Exception as e:
-            # Qdrant may not be available in dev
-            raise RuntimeError(f"Failed to ensure Qdrant collection: {e}") from e
+            raise RuntimeError(f"Failed to ensure ChromaDB collection: {e}") from e
 
     def search(
         self,
@@ -112,43 +102,43 @@ class RetrievalService:
         """
         Hybrid search: combine vector similarity with keyword scoring.
         """
-        client = self._get_client()
-        must = []
-        if sources:
-            must.append(
-                FieldCondition(
-                    key="source",
-                    match=MatchValue(any=sources),
-                )
-            )
-        qfilter = Filter(must=must) if must else None
+        collection = self._get_collection()
 
-        # Dense search
-        vector_results = client.search(
-            collection_name=self.COLLECTION,
-            query_vector=query_vector,
-            query_filter=qfilter,
-            limit=limit * 2 if use_hybrid else limit,
+        where_filter = None
+        if sources:
+            where_filter = {"source": {"$in": sources}}
+
+        n_results = limit * 2 if use_hybrid else limit
+        results = collection.query(
+            query_embeddings=[query_vector],
+            n_results=n_results,
+            where=where_filter,
+            include=["metadatas", "distances"],
         )
+
+        ids = results.get("ids", [[]])[0]
+        metadatas = results.get("metadatas", [[]])[0]
+        distances = results.get("distances", [[]])[0]
 
         if not use_hybrid or not BM25Okapi or not self._bm25_corpus:
             return [
-                {"id": r.id, "score": r.score, "payload": r.payload or {}}
-                for r in vector_results[:limit]
+                {"id": ids[i], "score": 1.0 - distances[i], "payload": metadatas[i] or {}}
+                for i in range(min(limit, len(ids)))
             ]
 
-        # Optional: re-rank with BM25 for keyword boost (simplified here)
-        seen = set()
-        output = []
-        for r in vector_results:
-            if r.id in seen:
+        seen: set[str] = set()
+        output: list[dict] = []
+        for i in range(len(ids)):
+            if ids[i] in seen:
                 continue
-            seen.add(r.id)
-            output.append({
-                "id": r.id,
-                "score": r.score,
-                "payload": r.payload or {},
-            })
+            seen.add(ids[i])
+            output.append(
+                {
+                    "id": ids[i],
+                    "score": 1.0 - distances[i],
+                    "payload": metadatas[i] or {},
+                }
+            )
             if len(output) >= limit:
                 break
         return output
@@ -158,15 +148,13 @@ class RetrievalService:
         points: list[tuple[str, list[float], dict]],
     ) -> None:
         """Upsert vectors with metadata (id, vector, payload)."""
-        client = self._get_client()
-        structs = [
-            PointStruct(id=p[0], vector=p[1], payload=p[2])
-            for p in points
-        ]
-        client.upsert(
-            collection_name=self.COLLECTION,
-            points=structs,
-        )
+        if not points:
+            return
+        collection = self._get_collection()
+        ids = [p[0] for p in points]
+        embeddings = [p[1] for p in points]
+        metadatas = [p[2] for p in points]
+        collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas)
 
     def add_to_bm25_corpus(self, doc_id: str, text: str, metadata: dict) -> None:
         """Add document to BM25 corpus for keyword search."""
@@ -180,6 +168,5 @@ class RetrievalService:
         self._bm25 = BM25Okapi(tokenized)
 
     async def close(self) -> None:
-        if self._client:
-            self._client.close()
-            self._client = None
+        self._client = None
+        self._collection = None

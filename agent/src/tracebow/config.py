@@ -6,27 +6,33 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-    )
+    model_config = SettingsConfigDict()
 
     # LLM (Ollama) — dual-model strategy
     ollama_base_url: str = "http://ollama:11434"
-    # General chat, Jira/Slack-style RAG summarization (fast)
     ollama_model: str = "llama3.2:3b"
-    # Deep coding, stack traces, CI RCA (Jenkins/GitHub webhooks & sync RCA)
     ollama_model_rca: str = "phi4-mini"
 
-    # Vector DB
-    qdrant_host: str = "qdrant"
-    qdrant_port: int = 6333
-    qdrant_collection: str = "tracebow_embeddings"
+    # Vector DB (ChromaDB)
+    chroma_host: str = "chromadb"
+    chroma_port: int = 8000
+    chroma_collection: str = "tracebow_embeddings"
 
     # Graph DB
     neo4j_uri: str = "bolt://neo4j:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: str = "changeme"
+
+    # Message broker (RabbitMQ)
+    rabbitmq_url: str = "amqp://tracebow:tracebow@rabbitmq:5672//"
+
+    # Result backend + cache (Redis)
+    redis_url: str = "redis://redis:6379/0"
+
+    # Celery worker tuning
+    celery_worker_concurrency: int = 4
+    celery_rca_rate_limit: str = "10/m"
+    celery_task_result_ttl: int = 86400
 
     # Integrations (optional)
     jenkins_url: str = ""
@@ -43,8 +49,8 @@ class Settings(BaseSettings):
     slack_bot_token: str = ""
     slack_signing_secret: str = ""
 
-    # API
-    api_host: str = "0.0.0.0"
+    # API (bind all interfaces — expected inside Docker)
+    api_host: str = "0.0.0.0"  # nosec B104
     api_port: int = 8080
     cors_origins: list[str] = ["*"]
 

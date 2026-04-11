@@ -3,7 +3,8 @@ export default function Settings() {
     <div className="settings-page">
       <h1>Configuration</h1>
       <p className="settings-desc">
-        Configure API tokens and ingestion parameters for connected tools. All data stays local—zero egress.
+        Configure API tokens and ingestion parameters for connected tools. All
+        data stays local—zero egress.
       </p>
       <div className="settings-grid">
         <SettingCard

@@ -4,9 +4,9 @@ MCP Tool Registry - Defines the suite of tools available to the agentic engine.
 The LLM receives these tools and can invoke them dynamically during RCA.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
-import httpx
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -34,7 +34,10 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="fetch_jenkins_console_output",
-                description="Fetch raw console output from a Jenkins build. Use when analyzing pipeline failures.",
+                description=(
+                    "Fetch raw console output from a Jenkins build. "
+                    "Use when analyzing pipeline failures."
+                ),
                 parameters={
                     "job_name": {"type": "string", "description": "Jenkins job name"},
                     "build_number": {"type": "integer", "description": "Build number"},
@@ -45,7 +48,9 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="query_jira_jql",
-                description="Search Jira issues using JQL. Use to find similar past incidents or RCAs.",
+                description=(
+                    "Search Jira issues using JQL. Use to find similar past incidents or RCAs."
+                ),
                 parameters={
                     "jql": {"type": "string", "description": "Jira Query Language query"},
                     "max_results": {"type": "integer", "description": "Max results (default 10)"},
@@ -56,7 +61,10 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="get_github_commit_diff",
-                description="Fetch the diff of a GitHub commit. Use to correlate code changes with failures.",
+                description=(
+                    "Fetch the diff of a GitHub commit. "
+                    "Use to correlate code changes with failures."
+                ),
                 parameters={
                     "owner": {"type": "string", "description": "Repository owner"},
                     "repo": {"type": "string", "description": "Repository name"},
@@ -80,7 +88,10 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="search_slack_archive",
-                description="Search Slack channel history for keywords. Use to find tribal knowledge about errors.",
+                description=(
+                    "Search Slack channel history for keywords. "
+                    "Use to find tribal knowledge about errors."
+                ),
                 parameters={
                     "keyword": {"type": "string"},
                     "channel": {"type": "string", "description": "Channel ID or name"},
@@ -93,10 +104,17 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="search_semantic_logs",
-                description="Semantic search over indexed log chunks, Jira, and Slack. Use for cross-tool correlation.",
+                description=(
+                    "Semantic search over indexed log chunks, Jira, and Slack. "
+                    "Use for cross-tool correlation."
+                ),
                 parameters={
                     "query": {"type": "string"},
-                    "sources": {"type": "array", "items": {"type": "string"}, "description": "Filter: logs, jira, slack"},
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter: logs, jira, slack",
+                    },
                     "limit": {"type": "integer", "description": "Max results (default 10)"},
                 },
                 handler=self._search_semantic,
@@ -105,7 +123,9 @@ class MCPToolRegistry:
         self.register(
             MCPTool(
                 name="get_blast_radius",
-                description="Get upstream/downstream repositories and artifacts affected by a change.",
+                description=(
+                    "Get upstream/downstream repositories and artifacts affected by a change."
+                ),
                 parameters={
                     "repo": {"type": "string"},
                     "commit_sha": {"type": "string"},
@@ -145,9 +165,7 @@ class MCPToolRegistry:
 
     # --- Tool implementations (stubs; replaced by injected services at runtime) ---
 
-    async def _fetch_jenkins_console(
-        self, job_name: str, build_number: int
-    ) -> dict:
+    async def _fetch_jenkins_console(self, job_name: str, build_number: int) -> dict:
         # Injected: use Jenkins API client
         return {
             "status": "stub",
@@ -156,18 +174,14 @@ class MCPToolRegistry:
             "build_number": build_number,
         }
 
-    async def _query_jira(
-        self, jql: str, max_results: int = 10
-    ) -> dict:
+    async def _query_jira(self, jql: str, max_results: int = 10) -> dict:
         return {
             "status": "stub",
             "message": "Implement via Jira REST API",
             "jql": jql,
         }
 
-    async def _get_github_diff(
-        self, owner: str, repo: str, commit_sha: str
-    ) -> dict:
+    async def _get_github_diff(self, owner: str, repo: str, commit_sha: str) -> dict:
         return {
             "status": "stub",
             "message": "Implement via GitHub API",
@@ -176,9 +190,7 @@ class MCPToolRegistry:
             "commit_sha": commit_sha,
         }
 
-    async def _get_github_pr_changes(
-        self, owner: str, repo: str, pr_number: int
-    ) -> dict:
+    async def _get_github_pr_changes(self, owner: str, repo: str, pr_number: int) -> dict:
         return {
             "status": "stub",
             "message": "Implement via GitHub API",
@@ -187,9 +199,7 @@ class MCPToolRegistry:
             "pr_number": pr_number,
         }
 
-    async def _search_slack(
-        self, keyword: str, channel: str, date_from: str, date_to: str
-    ) -> dict:
+    async def _search_slack(self, keyword: str, channel: str, date_from: str, date_to: str) -> dict:
         return {
             "status": "stub",
             "message": "Implement via Slack API",

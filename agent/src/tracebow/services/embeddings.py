@@ -1,4 +1,5 @@
 """Embedding service for vector RAG using local Ollama."""
+
 from __future__ import annotations
 
 import logging
@@ -19,7 +20,6 @@ class EmbeddingService:
     def _get_client(self) -> Any:
         if self._client is None:
             try:
-                from langchain_ollama import ChatOllama
                 from langchain_ollama.embeddings import OllamaEmbeddings
 
                 self._embeddings = OllamaEmbeddings(

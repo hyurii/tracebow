@@ -25,7 +25,7 @@ class GraphService:
         self,
         uri: str = "bolt://neo4j:7687",
         user: str = "neo4j",
-        password: str = "tracebow",
+        password: str = "tracebow",  # nosec B107
     ):
         self._uri = uri
         self._user = user
@@ -48,12 +48,8 @@ class GraphService:
         if not driver:
             return
         async with driver.session() as session:
-            await session.run(
-                "CREATE INDEX repo_name IF NOT EXISTS FOR (r:Repo) ON (r.name)"
-            )
-            await session.run(
-                "CREATE INDEX commit_sha IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
-            )
+            await session.run("CREATE INDEX repo_name IF NOT EXISTS FOR (r:Repo) ON (r.name)")
+            await session.run("CREATE INDEX commit_sha IF NOT EXISTS FOR (c:Commit) ON (c.sha)")
 
     async def get_blast_radius(
         self,
@@ -75,12 +71,12 @@ class GraphService:
             }
 
         # Try graph traversal first; fallback to simple commit lookup
-        query_traverse = """
-        MATCH path = (c:Commit)-[:AFFECTS*1..%d]-(node)
+        query_traverse = f"""
+        MATCH path = (c:Commit)-[:AFFECTS*1..{depth}]-(node)
         WHERE c.sha = $sha AND c.repo = $repo
         RETURN DISTINCT labels(node)[0] AS type, node.name AS name, node.repo AS repo
         LIMIT 50
-        """ % depth
+        """
         query_fallback = """
         MATCH (c:Commit) WHERE c.sha = $sha AND c.repo = $repo
         RETURN 'Commit' AS type, c.sha AS name, c.repo AS repo

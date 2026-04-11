@@ -17,7 +17,10 @@ export default function Failures() {
   return (
     <div className="failures-page">
       <h1>Pipeline Failures</h1>
-      <FailuresList failures={failures} onRefresh={() => window.location.reload()} />
+      <FailuresList
+        failures={failures}
+        onRefresh={() => window.location.reload()}
+      />
     </div>
   );
 }

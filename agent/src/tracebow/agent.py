@@ -1,13 +1,13 @@
-"""Agentic orchestration engine implementing Context–Planning–Action (C-P-A) loop."""
+"""Agentic orchestration engine implementing Context-Planning-Action (C-P-A) loop."""
+
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from tracebow.config import get_settings
-from tracebow.services.retrieval import RetrievalService
 from tracebow.services.graph import GraphService
+from tracebow.services.retrieval import RetrievalService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,11 @@ class RCAAgent:
 
         # Retrieve relevant artifacts via hybrid RAG + graph
         retrieved = await self._retrieve_context(context)
-        logger.info("Retrieved %d chunks, %d graph nodes", len(retrieved.get("chunks", [])), len(retrieved.get("graph_nodes", [])))
+        logger.info(
+            "Retrieved %d chunks, %d graph nodes",
+            len(retrieved.get("chunks", [])),
+            len(retrieved.get("graph_nodes", [])),
+        )
 
         settings = get_settings()
         llm_model = (
@@ -63,11 +67,19 @@ class RCAAgent:
 
         elif event_type == "github":
             repo = payload.get("repository")
-            ctx["repo"] = repo if isinstance(repo, str) else (repo.get("full_name") if isinstance(repo, dict) else None)
+            ctx["repo"] = (
+                repo
+                if isinstance(repo, str)
+                else (repo.get("full_name") if isinstance(repo, dict) else None)
+            )
             ctx["run_id"] = payload.get("run_id")
             ctx["workflow"] = payload.get("workflow_name") or payload.get("workflow")
             ctx["commit"] = payload.get("head_sha")
-            ctx["pr_number"] = payload.get("pull_request_number") or (payload.get("pull_request", {}).get("number") if isinstance(payload.get("pull_request"), dict) else None)
+            ctx["pr_number"] = payload.get("pull_request_number") or (
+                payload.get("pull_request", {}).get("number")
+                if isinstance(payload.get("pull_request"), dict)
+                else None
+            )
 
         elif event_type in ("chat", "generic"):
             ctx["query"] = payload.get("query", "")
@@ -84,7 +96,11 @@ class RCAAgent:
         if context.get("repo"):
             query_parts.append(f"repository {context['repo']}")
 
-        query = " ".join(query_parts) if query_parts else context.get("query", "pipeline failure build log")
+        query = (
+            " ".join(query_parts)
+            if query_parts
+            else context.get("query", "pipeline failure build log")
+        )
 
         chunks = await self.retrieval.hybrid_search(query, top_k=10)
         graph_nodes: list[dict] = []
@@ -93,10 +109,13 @@ class RCAAgent:
             try:
                 result = await self.graph.get_blast_radius(
                     repo=context.get("repo") or "",
-                    commit=context.get("commit", "")[:8],
+                    commit_sha=context.get("commit", "")[:8],
                 )
                 affected = result.get("affected", []) if isinstance(result, dict) else []
-                graph_nodes = [{"id": f"{r.get('type','')}:{r.get('name','')}:{r.get('repo','')}", **r} for r in affected]
+                graph_nodes = [
+                    {"id": f"{r.get('type', '')}:{r.get('name', '')}:{r.get('repo', '')}", **r}
+                    for r in affected
+                ]
             except Exception as e:
                 logger.warning("Graph blast radius lookup failed: %s", e)
                 graph_nodes = []
@@ -148,7 +167,11 @@ async def run_rca_agent(query: str, context: dict[str, Any] | None = None) -> st
             "job_name": ctx.get("job_or_repo"),
             "build_number": ctx.get("build_or_run_id"),
             "git_commit": ctx.get("git_commit"),
-            **{k: v for k, v in ctx.items() if k not in ("source", "job_or_repo", "build_or_run_id")},
+            **{
+                k: v
+                for k, v in ctx.items()
+                if k not in ("source", "job_or_repo", "build_or_run_id")
+            },
         }
         event_type = "jenkins"
     elif source == "github":
@@ -157,7 +180,11 @@ async def run_rca_agent(query: str, context: dict[str, Any] | None = None) -> st
             "run_id": ctx.get("build_or_run_id"),
             "head_sha": ctx.get("head_sha"),
             "pull_request_number": ctx.get("pr_number"),
-            **{k: v for k, v in ctx.items() if k not in ("source", "job_or_repo", "build_or_run_id")},
+            **{
+                k: v
+                for k, v in ctx.items()
+                if k not in ("source", "job_or_repo", "build_or_run_id")
+            },
         }
         event_type = "github"
     else:

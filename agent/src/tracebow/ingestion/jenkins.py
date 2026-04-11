@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
-from tracebow.ingestion.base import ChunkMetadata, IngestionPipeline, RawDocument
+from tracebow.ingestion.base import IngestionPipeline, RawDocument
 
 if TYPE_CHECKING:
-    from tracebow.services.embeddings import EmbeddingService
+    pass
 
 
 @dataclass
@@ -27,7 +27,7 @@ class JenkinsIngestionPipeline(IngestionPipeline[JenkinsLogChunk]):
     """Ingests Jenkins console output, filters noise, extracts anomaly clusters."""
 
     # Patterns for boilerplate noise to filter
-    NOISE_PATTERNS = [
+    NOISE_PATTERNS: ClassVar[list[str]] = [
         r"\[Pipeline\]\s*(?:echo|sh|withCredentials)",
         r"^(?:#!/bin/bash|/usr/bin/env)\s",
         r"^\s*$",
@@ -39,7 +39,7 @@ class JenkinsIngestionPipeline(IngestionPipeline[JenkinsLogChunk]):
     NOISE_RE = re.compile("|".join(f"({p})" for p in NOISE_PATTERNS), re.MULTILINE)
 
     # Patterns indicating failure or anomaly
-    FAILURE_INDICATORS = [
+    FAILURE_INDICATORS: ClassVar[list[str]] = [
         r"ERROR|FAILURE|FAILED|Exception|Traceback|error:|fatal:",
         r"AssertionError|SyntaxError|TypeError|ValueError",
         r"timeout|Timed out|Connection refused",
@@ -129,3 +129,6 @@ class JenkinsIngestionPipeline(IngestionPipeline[JenkinsLogChunk]):
         if chunk.failure_signature:
             parts.insert(1, f"Failure: {chunk.failure_signature}")
         return "\n\n".join(parts)
+
+
+JenkinsIngester = JenkinsIngestionPipeline

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from tracebow.ingestion.base import IngestionPipeline, RawDocument
 
 if TYPE_CHECKING:
-    from tracebow.services.embeddings import EmbeddingService
+    pass
 
 
 @dataclass
@@ -107,3 +107,6 @@ class GitHubIngestionPipeline(IngestionPipeline[GitHubChunk]):
     def to_embedding_payload(self, chunk: GitHubChunk) -> str:
         """Format for embedding."""
         return chunk.content
+
+
+GitHubIngester = GitHubIngestionPipeline

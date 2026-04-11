@@ -1,0 +1,18 @@
+# Checkov IaC scanning configuration.
+# Scans Dockerfiles, docker-compose, and GitHub Actions for misconfigurations.
+
+framework:
+  - dockerfile
+  - github_actions
+
+directory:
+  - .
+
+skip-check:
+  # CKV_DOCKER_2: HEALTHCHECK — we use compose-level healthchecks instead
+  - CKV_DOCKER_2
+  # CKV_DOCKER_3: USER — our containers run as root inside Docker network only
+  - CKV_DOCKER_3
+
+compact: true
+quiet: true

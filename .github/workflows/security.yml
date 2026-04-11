@@ -1,0 +1,257 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # weekly Monday 06:00 UTC
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════
+  # SAST — Static Application Security Testing
+  # ═══════════════════════════════════════════════════════════════════
+
+  codeql:
+    name: "CodeQL (${{ matrix.language }})"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [python, javascript-typescript, go]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@v3
+
+  semgrep:
+    name: "Semgrep SAST"
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: semgrep scan --config=auto --sarif --output=semgrep.sarif .
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  # ═══════════════════════════════════════════════════════════════════
+  # SCA — Software Composition Analysis (dependency vulnerabilities)
+  # ═══════════════════════════════════════════════════════════════════
+
+  osv-scanner:
+    name: "OSV-Scanner (all lockfiles)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --recursive
+            ./
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: /tmp/osv-scanner-results.sarif
+        continue-on-error: true
+
+  python-audit:
+    name: "Python dependency audit (pip-audit)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: agent/uv.lock
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --dev
+
+      - name: pip-audit
+        run: uv run pip-audit
+
+  npm-audit:
+    name: "npm dependency audit"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+
+      - run: npm ci
+
+      - name: npm audit
+        run: npm audit --omit=dev
+
+  govulncheck:
+    name: "Go vulnerability check"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tracebow-cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tracebow-cli/go.mod
+          cache-dependency-path: tracebow-cli/go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: govulncheck
+        run: govulncheck ./...
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Container scanning
+  # ═══════════════════════════════════════════════════════════════════
+
+  trivy-vuln:
+    name: "Trivy vulnerability scan (${{ matrix.component }})"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [agent, portal]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component }}
+          load: true
+          tags: tracebow/${{ matrix.component }}:scan
+          cache-from: type=gha
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: tracebow/${{ matrix.component }}:scan
+          format: sarif
+          output: trivy-vuln-${{ matrix.component }}.sarif
+          severity: CRITICAL,HIGH
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-vuln-${{ matrix.component }}.sarif
+          category: trivy-vuln-${{ matrix.component }}
+
+  trivy-license:
+    name: "Trivy license scan (${{ matrix.component }})"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [agent, portal]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component }}
+          load: true
+          tags: tracebow/${{ matrix.component }}:scan
+          cache-from: type=gha
+
+      - name: Trivy license scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: tracebow/${{ matrix.component }}:scan
+          scanners: license
+          severity: UNKNOWN,HIGH,CRITICAL
+          exit-code: "1"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # IaC — Infrastructure as Code misconfiguration scanning
+  # ═══════════════════════════════════════════════════════════════════
+
+  checkov:
+    name: "Checkov IaC scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: dockerfile,github_actions,yaml
+          quiet: true
+          soft_fail: true
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov.sarif
+          category: checkov
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Quality gate (optional — needs SONAR_TOKEN secret)
+  # ═══════════════════════════════════════════════════════════════════
+
+  sonarcloud:
+    name: "SonarCloud"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

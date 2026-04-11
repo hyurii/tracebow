@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from tracebow.ingestion.base import IngestionPipeline, RawDocument
 
 if TYPE_CHECKING:
-    from tracebow.services.embeddings import EmbeddingService
+    pass
 
 
 @dataclass
@@ -35,7 +35,6 @@ class SlackIngestionPipeline(IngestionPipeline[SlackThreadChunk]):
         # Group by thread_ts; root messages have thread_ts == ts or missing
         threads: dict[str, list[dict]] = {}
         for msg in messages:
-            ts = msg.get("ts", "")
             thread_ts = msg.get("thread_ts") or msg.get("ts")
             if thread_ts not in threads:
                 threads[thread_ts] = []
@@ -90,15 +89,15 @@ class SlackIngestionPipeline(IngestionPipeline[SlackThreadChunk]):
 
     def _is_off_topic(self, content: str) -> bool:
         """Heuristic to skip clearly non-technical threads."""
-        low = content.lower()
         if len(content) < 30:
             return True
         # Emoji-heavy, greetings only
-        if content.count(":") > len(content) / 10:
-            return True
-        return False
+        return content.count(":") > len(content) / 10
 
     def to_embedding_payload(self, chunk: SlackThreadChunk) -> str:
         """Format for embedding."""
         prefix = f"[Slack #{chunk.channel_name or chunk.channel_id}]"
         return f"{prefix}\n{chunk.content}"
+
+
+SlackIngester = SlackIngestionPipeline

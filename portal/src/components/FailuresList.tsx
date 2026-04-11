@@ -31,7 +31,8 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
       </div>
       {failures.length === 0 ? (
         <p className="empty-state">
-          No failures recorded. Trigger a Jenkins or GitHub Actions failure, then call the webhook.
+          No failures recorded. Trigger a Jenkins or GitHub Actions failure,
+          then call the webhook.
         </p>
       ) : (
         <div className="failures-layout">
@@ -43,9 +44,15 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
                 onClick={() => handleSelect(f.id)}
               >
                 <span className="source">{f.source}</span>
-                {f.job_name && <span className="job">{f.job_name} #{f.build_number}</span>}
+                {f.job_name && (
+                  <span className="job">
+                    {f.job_name} #{f.build_number}
+                  </span>
+                )}
                 {f.repo && <span className="repo">{f.repo}</span>}
-                <span className="time">{new Date(f.triggered_at).toLocaleString()}</span>
+                <span className="time">
+                  {new Date(f.triggered_at).toLocaleString()}
+                </span>
                 {f.rca_summary && <span className="badge">RCA ready</span>}
               </li>
             ))}

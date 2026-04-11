@@ -5,8 +5,8 @@ export default function Dashboard() {
     <div className="dashboard-page">
       <h1>Welcome to Tracebow</h1>
       <p className="lead">
-        Local, agent-driven root cause analysis for Jenkins, GitHub Actions, Jira, and Slack.
-        Zero egress—your data stays within your infrastructure.
+        Local, agent-driven root cause analysis for Jenkins, GitHub Actions,
+        Jira, and Slack. Zero egress—your data stays within your infrastructure.
       </p>
       <div className="dashboard-cards">
         <Link to="/failures" className="card">
@@ -25,7 +25,11 @@ export default function Dashboard() {
       <div className="dashboard-info">
         <h3>Quick Start</h3>
         <ul>
-          <li>Configure Jenkins/GitHub webhooks to POST failures to <code>/api/v1/webhooks/jenkins</code> or <code>/api/v1/webhooks/github</code></li>
+          <li>
+            Configure Jenkins/GitHub webhooks to POST failures to{" "}
+            <code>/api/v1/webhooks/jenkins</code> or{" "}
+            <code>/api/v1/webhooks/github</code>
+          </li>
           <li>Run ingestion to populate the vector and graph databases</li>
           <li>Use the chat interface to query across logs, Jira, and Slack</li>
         </ul>

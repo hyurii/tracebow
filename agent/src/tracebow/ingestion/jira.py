@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from tracebow.ingestion.base import IngestionPipeline, RawDocument
 
 if TYPE_CHECKING:
-    from tracebow.services.embeddings import EmbeddingService
+    pass
 
 
 @dataclass
@@ -78,3 +78,6 @@ class JiraIngestionPipeline(IngestionPipeline[JiraIssueChunk]):
     def to_embedding_payload(self, chunk: JiraIssueChunk) -> str:
         """Format for embedding."""
         return chunk.content
+
+
+JiraIngester = JiraIngestionPipeline

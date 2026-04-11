@@ -82,14 +82,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: failed to reach Tracebow backend: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		fmt.Fprintf(os.Stderr, "tracebow-cli: accepted (HTTP %d)\n", resp.StatusCode)
-		os.Stdout.Write(respBody)
-		os.Stdout.Write([]byte("\n"))
+		_, _ = os.Stdout.Write(respBody)
+		_, _ = os.Stdout.Write([]byte("\n"))
 	} else {
 		fmt.Fprintf(os.Stderr, "error: server returned HTTP %d: %s\n", resp.StatusCode, string(respBody))
 		os.Exit(1)
