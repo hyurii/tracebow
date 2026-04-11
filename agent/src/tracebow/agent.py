@@ -48,7 +48,7 @@ class RCAAgent:
         settings = get_settings()
         llm_model = (
             settings.ollama_model_rca
-            if event_type in ("jenkins", "github")
+            if event_type in ("jenkins", "github", "cli")
             else settings.ollama_model
         )
         # Plan and synthesize RCA (in production: delegate to local LLM)
@@ -81,6 +81,21 @@ class RCAAgent:
                 else None
             )
 
+        elif event_type == "cli":
+            # Go CLI agent: same shape as chat for `query`, plus repo/job for RAG + graph.
+            repo = payload.get("repository")
+            ctx["repo"] = (
+                repo
+                if isinstance(repo, str)
+                else (repo.get("full_name") if isinstance(repo, dict) else None)
+            )
+            ctx["job_name"] = payload.get("job_name")
+            ctx["query"] = payload.get("query", "")
+            ctx["commit"] = payload.get("git_commit") or payload.get("head_sha")
+            pr = payload.get("pr_number")
+            if pr is not None:
+                ctx["pr_number"] = pr
+
         elif event_type in ("chat", "generic"):
             ctx["query"] = payload.get("query", "")
 
@@ -96,11 +111,12 @@ class RCAAgent:
         if context.get("repo"):
             query_parts.append(f"repository {context['repo']}")
 
-        query = (
-            " ".join(query_parts)
-            if query_parts
-            else context.get("query", "pipeline failure build log")
-        )
+        if query_parts:
+            base = " ".join(query_parts)
+            extra = (context.get("query") or "").strip()
+            query = f"{base} {extra}".strip() if extra else base
+        else:
+            query = context.get("query", "pipeline failure build log")
 
         chunks = await self.retrieval.hybrid_search(query, top_k=10)
         graph_nodes: list[dict] = []
