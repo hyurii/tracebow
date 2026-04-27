@@ -1,23 +1,34 @@
 import { useState } from "react";
-import type { Failure } from "../types";
+import DOMPurify from "dompurify";
+import MarkdownIt from "markdown-it";
+import { api } from "../api";
+import type { Failure, FailureDetail } from "../types";
 
 interface FailuresListProps {
   failures: Failure[];
   onRefresh: () => void;
 }
 
+const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
+
 export function FailuresList({ failures, onRefresh }: FailuresListProps) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [rca, setRca] = useState<string | null>(null);
+  const [detail, setDetail] = useState<FailureDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSelect = async (id: string) => {
     setSelected(id);
+    setError(null);
+    setDetail(null);
+    setLoading(true);
     try {
-      const r = await fetch(`/api/v1/failures/${id}/rca`);
-      const d = await r.json();
-      setRca(d.summary ?? d.error ?? "No RCA available.");
-    } catch {
-      setRca("Failed to load RCA.");
+      const d = await api.getFailure(id);
+      setDetail(d);
+    } catch (err) {
+      setError(String((err as Error).message ?? err));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,7 +43,7 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
       {failures.length === 0 ? (
         <p className="empty-state">
           No failures recorded. Trigger a Jenkins or GitHub Actions failure,
-          then call the webhook.
+          then call the webhook or run the CLI agent.
         </p>
       ) : (
         <div className="failures-layout">
@@ -46,28 +57,83 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
                 <span className="source">{f.source}</span>
                 {f.job_name && (
                   <span className="job">
-                    {f.job_name} #{f.build_number}
+                    {f.job_name}
+                    {f.build_number != null ? ` #${f.build_number}` : ""}
                   </span>
                 )}
                 {f.repo && <span className="repo">{f.repo}</span>}
                 <span className="time">
-                  {new Date(f.triggered_at).toLocaleString()}
+                  {f.triggered_at
+                    ? new Date(f.triggered_at).toLocaleString()
+                    : "—"}
                 </span>
                 {f.rca_summary && <span className="badge">RCA ready</span>}
               </li>
             ))}
           </ul>
           <div className="rca-panel">
-            {selected ? (
-              <div className="rca-content">
-                <h3>Root Cause Analysis</h3>
-                <pre>{rca ?? "Loading…"}</pre>
-              </div>
-            ) : (
+            {loading && <p>Loading…</p>}
+            {error && <p className="wiki-error">{error}</p>}
+            {!selected && !loading && !error && (
               <p className="rca-placeholder">Select a failure to view RCA</p>
             )}
+            {detail && !loading && !error && <RcaDetail detail={detail} />}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function RcaDetail({ detail }: { detail: FailureDetail }) {
+  const rcaHtml = detail.rca?.summary
+    ? DOMPurify.sanitize(md.render(detail.rca.summary))
+    : null;
+  return (
+    <div className="rca-content">
+      <h3>Root Cause Analysis</h3>
+      {detail.rca ? (
+        <>
+          <div className="rca-meta">
+            <span className={`rca-branch-badge ${detail.rca.branch_taken}`}>
+              {detail.rca.branch_taken === "wiki_hit"
+                ? "Wiki hit"
+                : "Novel — reasoned"}
+            </span>
+            {detail.rca.wiki_doc_path && (
+              <span>
+                Wiki: <code>{detail.rca.wiki_doc_path}</code>
+                {detail.rca.wiki_doc_created ? " (new)" : ""}
+              </span>
+            )}
+            {detail.rca.model_used && (
+              <span>
+                Model: <code>{detail.rca.model_used}</code>
+              </span>
+            )}
+            {detail.rca.latency_ms != null && (
+              <span>{detail.rca.latency_ms} ms</span>
+            )}
+          </div>
+          {rcaHtml && (
+            <article
+              className="rca-markdown"
+              dangerouslySetInnerHTML={{ __html: rcaHtml }}
+            />
+          )}
+        </>
+      ) : (
+        <p className="rca-placeholder">No RCA for this failure yet.</p>
+      )}
+      {detail.stacktraces.length > 0 && (
+        <>
+          <h4>Stack trace</h4>
+          {detail.stacktraces.map((s) => (
+            <pre key={s.id} className="stacktrace">
+              {s.excerpt}
+            </pre>
+          ))}
+        </>
       )}
     </div>
   );

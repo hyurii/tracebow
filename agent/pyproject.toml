@@ -1,33 +1,46 @@
 [project]
 name = "tracebow-agent"
-version = "0.1.0"
-description = "Agent orchestration and RAG engine for CI/CD root cause analysis"
+version = "0.2.0"
+description = "LangGraph-based SRE agent for CI/CD root cause analysis with a Git-backed Markdown wiki"
 requires-python = ">=3.11"
 dependencies = [
+    # API layer
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
-    "langchain>=0.1.0",
-    "langchain-community>=0.0.20",
-    "langchain-ollama>=0.0.1",
-    "chromadb>=0.5.0",
-    "neo4j>=5.15.0",
     "httpx>=0.26.0",
-    "slack-sdk>=3.26.0",
-    "atlassian-python-api>=3.41.0",
-    "PyGithub>=2.1.0",
-    "torch>=2.2.0",
-    "sentence-transformers>=2.2.0",
-    "rank-bm25>=0.2.2",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
+    # LLM orchestration
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-ollama>=0.2.0",
+    # Task queue (Celery + Redis for broker and result backend)
     "celery[redis]>=5.4.0",
     "redis>=5.0.0",
-    "flower>=2.0.0",
+    # Telemetry database (Postgres primary, SQLite fallback for local/tests)
+    "sqlalchemy[asyncio]>=2.0.25",
+    "psycopg[binary]>=3.1.17",
+    "alembic>=1.13.0",
+    "aiosqlite>=0.19.0",
+    # Git-backed wiki
+    "gitpython>=3.1.40",
+    "markdown-it-py>=3.0.0",
+    # Config / validation
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    # Crypto for deploy-key storage (at-rest AES-GCM on top of a KEK env)
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
 # Kept for `pip install -e ".[dev]"` / published wheels; uv uses [dependency-groups] below.
-dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "types-redis", "pip-audit", "pre-commit"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+    "types-redis",
+    "pip-audit",
+    "pre-commit",
+]
 
 [dependency-groups]
 # PEP 735 — uv includes the `dev` group by default on `uv sync` / `uv run` (use `--no-dev` to skip).
@@ -40,15 +53,6 @@ dev = [
     "pip-audit",
     "pre-commit",
 ]
-
-# CPU-only PyTorch: PyPI serves CUDA wheels on Linux (multi‑GB nvidia-* deps).
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]
 
 [build-system]
 requires = ["hatchling"]
@@ -64,6 +68,10 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/tracebow/api/routes.py" = ["B008"]  # FastAPI's Depends(...) in defaults is idiomatic
+"tests/*" = ["E501"]  # long inline fixtures (e.g. deploy keys) are fine in tests
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
@@ -72,7 +80,7 @@ ignore_missing_imports = true
 
 [tool.bandit]
 targets = ["src/tracebow"]
-skips = ["B101"]  # allow assert in tests
+skips = ["B101"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

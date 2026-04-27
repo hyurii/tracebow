@@ -1,28 +1,25 @@
 # Tracebow — DEVELOPMENT compose file.
 #
-# Builds images from local source code. Exposes all debug ports
-# (RabbitMQ management, Neo4j browser, Flower, ChromaDB, Redis, Ollama).
+# Builds images from local source code, exposes all debug ports.
 #
 # Usage:
 #   docker compose -f docker-compose.dev.yml up -d --build
 #
-# Rebuild after code changes:
-#   docker compose -f docker-compose.dev.yml up -d --build agent
+# Rebuild after agent changes:
+#   docker compose -f docker-compose.dev.yml up -d --build agent celery-worker celery-beat
 
 x-tracebow-agent-environment: &tracebow-agent-environment
+  OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
   OLLAMA_BASE_URL: http://ollama:11434
   OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
   OLLAMA_MODEL_RCA: ${OLLAMA_MODEL_RCA:-phi4-mini}
-  CHROMA_HOST: chromadb
-  CHROMA_PORT: "8000"
-  CHROMA_COLLECTION: ${CHROMA_COLLECTION:-tracebow_embeddings}
-  NEO4J_URI: bolt://neo4j:7687
-  NEO4J_USER: ${NEO4J_USER:-neo4j}
-  NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
-  RABBITMQ_URL: amqp://${RABBITMQ_USER:-tracebow}:${RABBITMQ_PASSWORD:-tracebow}@rabbitmq:5672//
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracebow}:${POSTGRES_PASSWORD:-tracebow}@postgres:5432/${POSTGRES_DB:-tracebow}
   REDIS_URL: redis://redis:6379/0
-  CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+  CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
   CELERY_RCA_RATE_LIMIT: ${CELERY_RCA_RATE_LIMIT:-10/m}
+  WIKI_PATH: /wiki
+  WIKI_DEFAULT_BRANCH: ${WIKI_DEFAULT_BRANCH:-main}
+  WIKI_SECRET_KEY: ${WIKI_SECRET_KEY:-tracebow-dev-unsafe-key-please-override}
   JENKINS_URL: ${JENKINS_URL:-}
   JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
   JENKINS_USER: ${JENKINS_USER:-}
@@ -35,32 +32,27 @@ x-tracebow-agent-environment: &tracebow-agent-environment
   SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
   API_HOST: ${API_HOST:-0.0.0.0}
   API_PORT: ${API_PORT:-8080}
-  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
 
 services:
-  # ---------------------------------------------------------------------------
-  # Infrastructure
-  # ---------------------------------------------------------------------------
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
+  postgres:
+    image: postgres:16-alpine
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-tracebow}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-tracebow}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      POSTGRES_USER: ${POSTGRES_USER:-tracebow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracebow}
+      POSTGRES_DB: ${POSTGRES_DB:-tracebow}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracebow}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     ports:
@@ -70,10 +62,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-
-  # ---------------------------------------------------------------------------
-  # AI / data stores
-  # ---------------------------------------------------------------------------
 
   ollama:
     image: ollama/ollama:latest
@@ -99,32 +87,17 @@ services:
         done
         ollama pull phi4-mini
         ollama pull llama3.2:3b
-        ollama pull nomic-embed-text
     restart: "no"
 
-  chromadb:
-    image: chromadb/chroma:latest
-    volumes:
-      - chroma_data:/chroma/chroma
-    ports:
-      - "${CHROMA_PORT:-8000}:8000"
-
-  neo4j:
-    image: neo4j:5-community
+  migrate:
+    build: ./agent
+    command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
-      NEO4J_server_memory_heap_initial__size: 256m
-      NEO4J_server_memory_heap_max__size: 512m
-      NEO4J_server_memory_pagecache_size: 256m
-    volumes:
-      - neo4j_data:/data
-    ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
-
-  # ---------------------------------------------------------------------------
-  # Application (built from source)
-  # ---------------------------------------------------------------------------
+      <<: *tracebow-agent-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   agent:
     build: ./agent
@@ -132,18 +105,16 @@ services:
       - "${API_PORT:-8080}:8080"
     environment:
       <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
     depends_on:
-      rabbitmq:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_started
-      ollama-pull:
+      migrate:
         condition: service_completed_successfully
-      chromadb:
-        condition: service_started
-      neo4j:
+      ollama:
         condition: service_started
 
   celery-worker:
@@ -152,21 +123,21 @@ services:
       celery -A tracebow.celery_app worker
       --loglevel=info
       --queues=rca,default,maintenance
-      --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
       --max-tasks-per-child=200
       --without-heartbeat
     environment:
       <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
     depends_on:
-      rabbitmq:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       ollama:
-        condition: service_started
-      chromadb:
-        condition: service_started
-      neo4j:
         condition: service_started
 
   celery-beat:
@@ -177,26 +148,10 @@ services:
     environment:
       <<: *tracebow-agent-environment
     depends_on:
-      rabbitmq:
-        condition: service_healthy
       redis:
         condition: service_healthy
-
-  flower:
-    build: ./agent
-    command: >
-      celery -A tracebow.celery_app flower
-      --port=5555
-      --broker_api=http://${RABBITMQ_USER:-tracebow}:${RABBITMQ_PASSWORD:-tracebow}@rabbitmq:15672/api/
-    ports:
-      - "${FLOWER_PORT:-5555}:5555"
-    environment:
-      <<: *tracebow-agent-environment
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   portal:
     build: ./portal
@@ -206,8 +161,7 @@ services:
       - agent
 
 volumes:
-  rabbitmq_data:
+  postgres_data:
   redis_data:
   ollama_data:
-  chroma_data:
-  neo4j_data:
+  tracebow_wiki:

@@ -7,6 +7,7 @@ export default function Layout() {
     { path: "/", label: "Dashboard" },
     { path: "/chat", label: "Agent Chat" },
     { path: "/failures", label: "Failures" },
+    { path: "/wiki", label: "Wiki" },
     { path: "/settings", label: "Settings" },
   ];
 

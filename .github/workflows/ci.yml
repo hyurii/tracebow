@@ -144,6 +144,22 @@ jobs:
         run: make all
 
   # ---------------------------------------------------------------------------
+  # Policy: model provenance (block non-allowlisted LLMs in compose)
+  # ---------------------------------------------------------------------------
+  model-provenance:
+    name: "Policy: model provenance"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check compose files for denied models
+        run: python scripts/check_model_provenance.py
+
+  # ---------------------------------------------------------------------------
   # Integrations (YAML validation)
   # ---------------------------------------------------------------------------
   integrations-lint:
