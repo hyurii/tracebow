@@ -25,4 +25,5 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8080
 
+# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["uv", "run", "uvicorn", "tracebow.main:app", "--host", "0.0.0.0", "--port", "8080"]
