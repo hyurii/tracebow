@@ -1,13 +1,18 @@
-# Tracebow — customer deployment.
+# Tracebow — customer / open-source deployment.
 #
-# Fully local, zero-egress stack. Images pulled from ghcr.io — no source
-# code required on the host.
+# Fully local, zero-egress stack.
 #
 # Minimum hardware: 4 GB RAM (t3.medium or equivalent).
 # Recommended: 8 GB RAM when Ollama is enabled.
 #
-# Quick start:
+# Quick start (build from source — works from a fresh clone, no registry auth):
+#   docker compose up -d --build
+#
+# Or, once the public images are published to ghcr.io, pull them instead:
 #   docker compose up -d
+#
+# Images default to ghcr.io/<repo-owner> (where publish.yml pushes them).
+# Point at a different registry namespace with TRACEBOW_REGISTRY in .env.
 #
 # Models pulled once on startup via ollama-pull (idempotent):
 #   phi4-mini        — deep coding, stack traces, pipeline RCA
@@ -43,10 +48,16 @@ x-tracebow-agent-environment: &tracebow-agent-environment
   SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
 
 x-tracebow-image: &tracebow-image
-  image: ghcr.io/tracebow/agent:${TRACEBOW_VERSION:-latest}
+  # Uses the published image when present/pulled; builds from local source with
+  # `docker compose up -d --build`. The default namespace matches where CI
+  # publishes (ghcr.io/<repo-owner>, see .github/workflows/publish.yml). Override
+  # with TRACEBOW_REGISTRY (e.g. ghcr.io/your-org) if you publish elsewhere.
+  image: ${TRACEBOW_REGISTRY:-ghcr.io/hyurii}/agent:${TRACEBOW_VERSION:-latest}
+  build: ./agent
 
 x-portal-image: &portal-image
-  image: ghcr.io/tracebow/portal:${TRACEBOW_VERSION:-latest}
+  image: ${TRACEBOW_REGISTRY:-ghcr.io/hyurii}/portal:${TRACEBOW_VERSION:-latest}
+  build: ./portal
 
 services:
   # ---------------------------------------------------------------------------

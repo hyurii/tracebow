@@ -1,13 +1,26 @@
 FROM python:3.12-slim
 
+# git is required at runtime by GitPython (the Markdown wiki is git-backed).
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
+
+# Put the uv-managed virtualenv on PATH so entrypoints (celery, uvicorn,
+# alembic) resolve directly — the worker/beat compose commands call them
+# without the `uv run` prefix.
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8080
