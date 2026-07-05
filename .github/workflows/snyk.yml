@@ -33,7 +33,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('snyk-python.sarif') != '' }}
         with:
           sarif_file: snyk-python.sarif
           category: snyk-python
@@ -54,7 +54,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('snyk-node.sarif') != '' }}
         with:
           sarif_file: snyk-node.sarif
           category: snyk-node
@@ -75,7 +75,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('snyk-go.sarif') != '' }}
         with:
           sarif_file: snyk-go.sarif
           category: snyk-go
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles(format('snyk-docker-{0}.sarif', matrix.component)) != '' }}
         with:
           sarif_file: snyk-docker-${{ matrix.component }}.sarif
           category: snyk-docker-${{ matrix.component }}
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: ${{ !cancelled() && hashFiles('snyk-iac.sarif') != '' }}
         with:
           sarif_file: snyk-iac.sarif
           category: snyk-iac
