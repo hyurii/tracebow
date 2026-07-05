@@ -14,6 +14,7 @@ The layer deliberately does no LLM work; all of that is pushed to Celery.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import Any
 
@@ -25,7 +26,18 @@ from sqlalchemy.orm import selectinload
 
 from tracebow.celery_app import app as celery_app
 from tracebow.config import settings
-from tracebow.db import Failure, RcaReport, Stacktrace, WikiSettings, get_async_session
+from tracebow.db import (
+    AccessRequest,
+    EgressEvent,
+    Failure,
+    RcaReport,
+    Repository,
+    Stacktrace,
+    WikiSettings,
+    get_async_session,
+)
+from tracebow.services import repo_access
+from tracebow.services.egress import EXTERNAL, INTERNAL, classify_host
 from tracebow.services.secrets import decrypt, encrypt, fingerprint
 from tracebow.services.wiki import WikiError, WikiService
 from tracebow.tasks import (
@@ -119,6 +131,7 @@ class FailureSummary(BaseModel):
 
 class FailureDetail(FailureSummary):
     stacktraces: list[dict[str, Any]]
+    diffs: list[dict[str, Any]] = []
     rca: dict[str, Any] | None
 
 
@@ -174,6 +187,20 @@ class BackupConfigResponse(BaseModel):
     last_backup_at: str | None
     last_backup_status: str | None
     last_backup_error: str | None
+
+
+class RepositoryUpdate(BaseModel):
+    """Payload for the portal's Repositories page."""
+
+    access_status: str | None = None  # allowed | denied | pending
+    auth_method: str | None = None
+    display_name: str | None = None
+    # Present only when setting/rotating; None clears, omitted keeps existing.
+    credential: str | None = None
+
+
+class AccessRequestResolve(BaseModel):
+    decision: str  # approved | denied
 
 
 # ---------------------------------------------------------------------------
@@ -306,12 +333,14 @@ async def list_failures(
 async def get_failure(
     failure_id: str,
     session: AsyncSession = Depends(get_async_session),
+    include_full: bool = False,
 ) -> FailureDetail:
     stmt = (
         select(Failure)
         .options(
             selectinload(Failure.stacktraces),
             selectinload(Failure.rca_reports),
+            selectinload(Failure.commit_diffs),
         )
         .where(Failure.id == failure_id)
     )
@@ -344,9 +373,24 @@ async def get_failure(
                 "excerpt": s.excerpt,
                 "line_count": s.line_count,
                 "language": s.language,
+                "full_text": s.full_text if include_full else None,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
             }
             for s in row.stacktraces
+        ],
+        diffs=[
+            {
+                "id": d.id,
+                "provider": d.provider,
+                "ref": d.ref,
+                "files_changed": d.files_changed,
+                "additions": d.additions,
+                "deletions": d.deletions,
+                "patch": d.patch,
+                "truncated": d.truncated,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in row.commit_diffs
         ],
         rca=rca_dict,
     )
@@ -508,6 +552,229 @@ async def trigger_backup(
 
 
 # ---------------------------------------------------------------------------
+# Repositories + access control
+# ---------------------------------------------------------------------------
+
+
+@router.get("/repositories")
+async def list_repositories(
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    rows = (
+        (await session.execute(select(Repository).order_by(Repository.identifier))).scalars().all()
+    )
+    return {"repositories": [r.to_dict() for r in rows]}
+
+
+@router.patch("/repositories/{repo_id}")
+async def update_repository(
+    repo_id: str,
+    payload: RepositoryUpdate,
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    row = (
+        (await session.execute(select(Repository).where(Repository.id == repo_id)))
+        .scalars()
+        .first()
+    )
+    if row is None:
+        raise HTTPException(404, "Repository not found")
+
+    if payload.access_status is not None:
+        if payload.access_status not in repo_access.VALID_STATUSES:
+            raise HTTPException(400, f"invalid access_status: {payload.access_status}")
+        row.access_status = payload.access_status
+
+    if payload.display_name is not None:
+        row.display_name = payload.display_name.strip() or None
+
+    if payload.auth_method is not None:
+        if payload.auth_method not in repo_access.VALID_AUTH_METHODS:
+            raise HTTPException(400, f"invalid auth_method: {payload.auth_method}")
+        if payload.auth_method not in repo_access.IMPLEMENTED_AUTH_METHODS:
+            raise HTTPException(400, f"auth_method not yet supported: {payload.auth_method}")
+
+    # Only touch credentials when the caller explicitly sent the field.
+    if "credential" in payload.model_fields_set or payload.auth_method is not None:
+        method = payload.auth_method or row.auth_method
+        secret = payload.credential
+        repo_access.set_credential(row, method, secret)
+
+    await session.commit()
+    await session.refresh(row)
+    return row.to_dict()
+
+
+@router.get("/access-requests")
+async def list_access_requests(
+    session: AsyncSession = Depends(get_async_session),
+    status: str | None = None,
+) -> dict[str, Any]:
+    stmt = select(AccessRequest).order_by(AccessRequest.created_at.desc())
+    if status:
+        stmt = stmt.where(AccessRequest.status == status)
+    rows = (await session.execute(stmt)).scalars().all()
+    return {"requests": [r.to_dict() for r in rows]}
+
+
+@router.post("/access-requests/{request_id}/resolve")
+async def resolve_access_request(
+    request_id: str,
+    payload: AccessRequestResolve,
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    if payload.decision not in ("approved", "denied"):
+        raise HTTPException(400, "decision must be 'approved' or 'denied'")
+
+    req = (
+        (await session.execute(select(AccessRequest).where(AccessRequest.id == request_id)))
+        .scalars()
+        .first()
+    )
+    if req is None:
+        raise HTTPException(404, "Access request not found")
+
+    req.status = payload.decision
+    req.resolved_at = dt.datetime.utcnow()
+
+    # Approving a request grants the repo (creating the row if needed).
+    if payload.decision == "approved":
+        repo = (
+            (
+                await session.execute(
+                    select(Repository).where(
+                        Repository.provider == req.provider,
+                        Repository.identifier == req.identifier,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if repo is None:
+            repo = Repository(provider=req.provider, identifier=req.identifier)
+            session.add(repo)
+        repo.access_status = repo_access.ALLOWED
+
+    await session.commit()
+    await session.refresh(req)
+    return req.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Security / egress monitoring
+# ---------------------------------------------------------------------------
+
+
+def _configured_external_integrations() -> list[str]:
+    """External hosts Tracebow *could* reach given current configuration."""
+    from tracebow.services.egress import _host_of
+
+    hosts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(url: str | None, enabled: bool) -> None:
+        if not (url and enabled):
+            return
+        host = _host_of(url)
+        if host and host not in seen and classify_host(host) == EXTERNAL:
+            seen.add(host)
+            hosts.append(host)
+
+    _add(settings.github_api_base, bool(settings.github_token))
+    _add(settings.jira_url, bool(settings.jira_url and settings.jira_api_token))
+    _add("https://slack.com", bool(settings.slack_bot_token))
+    _add(settings.jenkins_url, bool(settings.jenkins_url and settings.jenkins_api_token))
+    return hosts
+
+
+@router.get("/security/summary")
+async def security_summary(
+    session: AsyncSession = Depends(get_async_session),
+) -> dict[str, Any]:
+    total = (await session.execute(select(func.count()).select_from(EgressEvent))).scalar_one()
+    external = (
+        await session.execute(
+            select(func.count())
+            .select_from(EgressEvent)
+            .where(EgressEvent.destination_kind == EXTERNAL)
+        )
+    ).scalar_one()
+    internal = (
+        await session.execute(
+            select(func.count())
+            .select_from(EgressEvent)
+            .where(EgressEvent.destination_kind == INTERNAL)
+        )
+    ).scalar_one()
+    sensitive = (
+        await session.execute(
+            select(func.count())
+            .select_from(EgressEvent)
+            .where(EgressEvent.sensitive_flags.isnot(None))
+        )
+    ).scalar_one()
+    blocked = (
+        await session.execute(
+            select(func.count()).select_from(EgressEvent).where(EgressEvent.blocked.is_(True))
+        )
+    ).scalar_one()
+
+    dest_rows = (
+        await session.execute(
+            select(
+                EgressEvent.destination_host,
+                EgressEvent.destination_kind,
+                func.count().label("count"),
+                func.max(EgressEvent.created_at).label("last_seen"),
+            ).group_by(EgressEvent.destination_host, EgressEvent.destination_kind)
+        )
+    ).all()
+    destinations = [
+        {
+            "host": host,
+            "kind": kind,
+            "count": int(count),
+            "last_seen": last_seen.isoformat() if last_seen is not None else None,
+        }
+        for host, kind, count, last_seen in dest_rows
+    ]
+
+    external_integrations = _configured_external_integrations()
+    posture = (
+        "external_configured" if external_integrations or int(external) > 0 else "internal_only"
+    )
+
+    return {
+        "posture": posture,
+        "external_integrations": external_integrations,
+        "total_events": int(total),
+        "external_events": int(external),
+        "internal_events": int(internal),
+        "sensitive_events": int(sensitive),
+        "blocked_events": int(blocked),
+        "destinations": destinations,
+    }
+
+
+@router.get("/security/egress")
+async def security_egress(
+    session: AsyncSession = Depends(get_async_session),
+    kind: str | None = None,
+    sensitive: bool = False,
+    limit: int = 200,
+) -> dict[str, Any]:
+    stmt = select(EgressEvent).order_by(EgressEvent.created_at.desc())
+    if kind in (INTERNAL, EXTERNAL):
+        stmt = stmt.where(EgressEvent.destination_kind == kind)
+    if sensitive:
+        stmt = stmt.where(EgressEvent.sensitive_flags.isnot(None))
+    stmt = stmt.limit(max(1, min(limit, 1000)))
+    rows = (await session.execute(stmt)).scalars().all()
+    return {"events": [e.to_dict() for e in rows]}
+
+
+# ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
 
@@ -530,5 +797,6 @@ async def get_stacktrace(
         "excerpt": row.excerpt,
         "line_count": row.line_count,
         "language": row.language,
+        "full_text": row.full_text,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }

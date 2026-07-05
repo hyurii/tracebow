@@ -625,3 +625,245 @@ h2 {
 .backup-flash {
   color: var(--success);
 }
+
+/* ============================================================
+   Stacktrace + diff (failure detail)
+   ============================================================ */
+
+.stacktrace-block,
+.diff-block {
+  margin-bottom: 1rem;
+}
+
+.stacktrace-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.stacktrace-meta {
+  color: var(--text-secondary);
+  font-size: 0.8em;
+}
+
+.stacktrace-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.diff-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin-bottom: 0.25rem;
+}
+
+.diff-add {
+  color: var(--success);
+}
+
+.diff-del {
+  color: var(--error);
+}
+
+.diff-patch {
+  background: var(--bg-tertiary);
+  padding: 0.75rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 340px;
+  overflow: auto;
+  font-size: 0.82em;
+}
+
+/* ============================================================
+   Shared: status badges + data tables
+   ============================================================ */
+
+.status-badge {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.status-badge.allowed,
+.status-badge.approved,
+.status-badge.internal {
+  background: var(--success);
+  color: #0b0f16;
+}
+
+.status-badge.denied {
+  background: var(--error);
+  color: #0b0f16;
+}
+
+.status-badge.pending {
+  background: var(--warning);
+  color: #0b0f16;
+}
+
+.status-badge.external {
+  background: var(--warning);
+  color: #0b0f16;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9em;
+}
+
+.data-table th {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-secondary);
+}
+
+.data-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tr.row-blocked {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+/* ============================================================
+   Repositories + access
+   ============================================================ */
+
+.repo-list,
+.access-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.repo-card,
+.access-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.repo-card-head,
+.access-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.repo-id,
+.access-card-head .repo-id {
+  font-weight: 600;
+}
+
+.repo-card-head .source,
+.access-card-head .source {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.repo-card-head .status-badge {
+  margin-left: auto;
+}
+
+.access-by {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.access-reason {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.repo-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.repo-creds {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.repo-cred-status code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* ============================================================
+   Security
+   ============================================================ */
+
+.posture-banner {
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0;
+  border: 1px solid var(--border);
+}
+
+.posture-banner.ok {
+  background: rgba(63, 185, 80, 0.12);
+  border-color: var(--success);
+}
+
+.posture-banner.warn {
+  background: rgba(210, 153, 34, 0.12);
+  border-color: var(--warning);
+}
+
+.stat-card h3 {
+  font-size: 1.8rem;
+}
+
+.stat-card.warn h3 {
+  color: var(--warning);
+}
+
+.stat-card.error h3 {
+  color: var(--error);
+}
+
+.egress-filters {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin: 0.5rem 0 1rem;
+  flex-wrap: wrap;
+}

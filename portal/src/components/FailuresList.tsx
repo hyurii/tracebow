@@ -2,7 +2,7 @@ import { useState } from "react";
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import { api } from "../api";
-import type { Failure, FailureDetail } from "../types";
+import type { CommitDiff, Failure, FailureDetail, Stacktrace } from "../types";
 
 interface FailuresListProps {
   failures: Failure[];
@@ -23,7 +23,7 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
     setDetail(null);
     setLoading(true);
     try {
-      const d = await api.getFailure(id);
+      const d = await api.getFailure(id, true);
       setDetail(d);
     } catch (err) {
       setError(String((err as Error).message ?? err));
@@ -129,11 +129,73 @@ function RcaDetail({ detail }: { detail: FailureDetail }) {
         <>
           <h4>Stack trace</h4>
           {detail.stacktraces.map((s) => (
-            <pre key={s.id} className="stacktrace">
-              {s.excerpt}
-            </pre>
+            <StacktraceView key={s.id} stacktrace={s} />
           ))}
         </>
+      )}
+      {detail.diffs && detail.diffs.length > 0 && (
+        <>
+          <h4>Latest change (diff)</h4>
+          {detail.diffs.map((d) => (
+            <DiffView key={d.id} diff={d} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function StacktraceView({ stacktrace }: { stacktrace: Stacktrace }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasFull =
+    !!stacktrace.full_text && stacktrace.full_text !== stacktrace.excerpt;
+  const shown =
+    expanded && stacktrace.full_text
+      ? stacktrace.full_text
+      : stacktrace.excerpt;
+
+  const copy = () => {
+    void navigator.clipboard?.writeText(stacktrace.full_text ?? shown);
+  };
+
+  return (
+    <div className="stacktrace-block">
+      <div className="stacktrace-toolbar">
+        <span className="stacktrace-meta">{stacktrace.line_count} lines</span>
+        <span className="stacktrace-actions">
+          {hasFull && (
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "Show tail only" : "Show full log"}
+            </button>
+          )}
+          <button type="button" className="btn-link" onClick={copy}>
+            Copy
+          </button>
+        </span>
+      </div>
+      <pre className="stacktrace">{shown}</pre>
+    </div>
+  );
+}
+
+function DiffView({ diff }: { diff: CommitDiff }) {
+  return (
+    <div className="diff-block">
+      <div className="diff-meta">
+        {diff.ref && <code>{diff.ref}</code>}
+        <span>{diff.files_changed} files</span>
+        <span className="diff-add">+{diff.additions}</span>
+        <span className="diff-del">-{diff.deletions}</span>
+        {diff.truncated && <span className="badge">truncated</span>}
+      </div>
+      {diff.patch ? (
+        <pre className="diff-patch">{diff.patch}</pre>
+      ) : (
+        <p className="rca-placeholder">No patch captured.</p>
       )}
     </div>
   );

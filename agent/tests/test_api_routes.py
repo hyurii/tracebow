@@ -227,3 +227,186 @@ async def test_backup_settings_round_trip(client: AsyncClient) -> None:
 async def test_backup_trigger_requires_remote(client: AsyncClient) -> None:
     resp = await client.post("/api/v1/settings/backup/trigger")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Full stacktrace + diff on failure detail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_failure_detail_full_text_is_gated(client: AsyncClient) -> None:
+    from tracebow.db import CommitDiff, Failure, Stacktrace
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        f = Failure(source="cli", status="analyzed", repo="acme/api")
+        session.add(f)
+        await session.flush()
+        session.add(
+            Stacktrace(
+                failure_id=f.id,
+                excerpt="tail only",
+                line_count=500,
+                full_text="FULL LOG LINE\n" * 100,
+            )
+        )
+        session.add(
+            CommitDiff(
+                failure_id=f.id,
+                provider="github",
+                ref="deadbeef",
+                files_changed=1,
+                additions=2,
+                deletions=1,
+                patch="@@ diff @@",
+            )
+        )
+        await session.commit()
+        failure_id = f.id
+
+    # Default: full_text withheld.
+    resp = await client.get(f"/api/v1/failures/{failure_id}")
+    body = resp.json()
+    assert body["stacktraces"][0]["full_text"] is None
+    assert body["diffs"][0]["patch"] == "@@ diff @@"
+
+    # include_full=true returns the whole log.
+    resp = await client.get(f"/api/v1/failures/{failure_id}?include_full=true")
+    body = resp.json()
+    assert body["stacktraces"][0]["full_text"].startswith("FULL LOG LINE")
+
+
+# ---------------------------------------------------------------------------
+# Repositories + access requests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_repository_list_and_allow(client: AsyncClient) -> None:
+    from tracebow.db import Repository
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        session.add(Repository(provider="github", identifier="acme/api"))
+        await session.commit()
+
+    resp = await client.get("/api/v1/repositories")
+    assert resp.status_code == 200
+    repos = resp.json()["repositories"]
+    assert len(repos) == 1
+    repo_id = repos[0]["id"]
+    assert repos[0]["access_status"] == "pending"
+
+    resp = await client.patch(f"/api/v1/repositories/{repo_id}", json={"access_status": "allowed"})
+    assert resp.status_code == 200
+    assert resp.json()["access_status"] == "allowed"
+
+
+@pytest.mark.asyncio
+async def test_repository_credential_is_encrypted(client: AsyncClient) -> None:
+    from sqlalchemy import select
+
+    from tracebow.db import Repository
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        session.add(Repository(provider="github", identifier="acme/api"))
+        await session.commit()
+        repo_id = ((await session.execute(select(Repository))).scalars().first()).id
+
+    resp = await client.patch(
+        f"/api/v1/repositories/{repo_id}",
+        json={"auth_method": "github_pat", "credential": "ghp_token_value_123456"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_credential"] is True
+    assert "credential" not in body
+
+    async with sm() as session:
+        row = (await session.execute(select(Repository))).scalars().first()
+        assert row.credential_encrypted is not None
+        assert b"ghp_token_value_123456" not in row.credential_encrypted
+
+
+@pytest.mark.asyncio
+async def test_repository_rejects_unsupported_auth_method(client: AsyncClient) -> None:
+    from sqlalchemy import select
+
+    from tracebow.db import Repository
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        session.add(Repository(provider="github", identifier="acme/api"))
+        await session.commit()
+        repo_id = ((await session.execute(select(Repository))).scalars().first()).id
+
+    resp = await client.patch(f"/api/v1/repositories/{repo_id}", json={"auth_method": "github_app"})
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_access_request_approve_grants_repo(client: AsyncClient) -> None:
+    from sqlalchemy import select
+
+    from tracebow.db import AccessRequest, Repository
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        session.add(Repository(provider="github", identifier="acme/api"))
+        session.add(AccessRequest(provider="github", identifier="acme/api", reason="diff"))
+        await session.commit()
+        req_id = ((await session.execute(select(AccessRequest))).scalars().first()).id
+
+    resp = await client.get("/api/v1/access-requests?status=pending")
+    assert resp.status_code == 200
+    assert len(resp.json()["requests"]) == 1
+
+    resp = await client.post(
+        f"/api/v1/access-requests/{req_id}/resolve", json={"decision": "approved"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "approved"
+
+    async with sm() as session:
+        repo = (await session.execute(select(Repository))).scalars().first()
+        assert repo.access_status == "allowed"
+
+
+# ---------------------------------------------------------------------------
+# Security / egress
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_security_summary_counts(client: AsyncClient) -> None:
+    from tracebow.db import EgressEvent
+
+    sm = app.state.db_sessionmaker
+    async with sm() as session:
+        session.add(EgressEvent(destination_host="ollama", destination_kind="internal"))
+        session.add(
+            EgressEvent(
+                destination_host="api.github.com",
+                destination_kind="external",
+                sensitive_flags=["github_token"],
+            )
+        )
+        await session.commit()
+
+    resp = await client.get("/api/v1/security/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_events"] == 2
+    assert body["internal_events"] == 1
+    assert body["external_events"] == 1
+    assert body["sensitive_events"] == 1
+    assert body["posture"] == "external_configured"
+
+    resp = await client.get("/api/v1/security/egress?kind=external")
+    assert resp.status_code == 200
+    events = resp.json()["events"]
+    assert len(events) == 1
+    assert events[0]["destination_host"] == "api.github.com"
+    assert events[0]["sensitive_flags"] == ["github_token"]

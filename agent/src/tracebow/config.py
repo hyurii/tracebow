@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.2:3b"
     ollama_model_rca: str = "phi4-mini"
+    # CPU inference is slow, so give it a generous per-request budget.
+    ollama_request_timeout: int = 120
+    ollama_temperature: float = 0.1
+    # Upper bound on ReAct tool-calling rounds in the reason node.
+    reason_max_tool_iterations: int = 4
 
     # ------------------------------------------------------------------
     # Task queue (Celery on Redis — Redis is broker AND result backend).

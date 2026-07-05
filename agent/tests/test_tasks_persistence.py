@@ -51,8 +51,12 @@ async def test_persist_failure_and_rca_writes_all_three(db_session, wiki_service
 
     stacks = (await db_session.execute(select(Stacktrace))).scalars().all()
     assert len(stacks) == 1
-    # We snip to the last 50 lines — should be <= 50.
-    assert stacks[0].line_count <= 50
+    # line_count now reflects the FULL log, while excerpt stays the 50-line tail
+    # and full_text holds the untruncated payload.
+    assert stacks[0].line_count == 62
+    assert len(stacks[0].excerpt.splitlines()) <= 50
+    assert stacks[0].full_text is not None
+    assert len(stacks[0].full_text.splitlines()) == 62
     assert stacks[0].failure_id == failure.id
 
     reports = (await db_session.execute(select(RcaReport))).scalars().all()

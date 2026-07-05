@@ -41,14 +41,28 @@ def _run_async(coro: Any) -> Any:
         loop.close()
 
 
+def _maybe_fetch_diff(
+    provider: str, identifier: str, payload: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Fetch the latest failing diff; never raise into the RCA path."""
+    try:
+        from tracebow.services.repohost import fetch_latest_diff
+
+        return fetch_latest_diff(provider, identifier, payload)
+    except Exception:
+        logger.exception("Diff fetch failed for %s:%s", provider, identifier)
+        return None
+
+
 async def _persist_failure_and_rca(
     task_id: str,
     event_type: str,
     payload: dict[str, Any],
     rca_result: dict[str, Any],
+    diff: dict[str, Any] | None = None,
 ) -> None:
-    """Write one Failure + one RcaReport (plus an optional Stacktrace) row."""
-    from tracebow.db import Failure, RcaReport, Stacktrace, get_session_factory
+    """Write one Failure + one RcaReport (plus an optional Stacktrace/diff)."""
+    from tracebow.db import CommitDiff, Failure, RcaReport, Stacktrace, get_session_factory
 
     stacktrace_text = (
         payload.get("log_content")
@@ -79,12 +93,14 @@ async def _persist_failure_and_rca(
         await session.flush()
 
         if stacktrace_text:
-            snippet = "\n".join(stacktrace_text.splitlines()[-50:])
+            all_lines = stacktrace_text.splitlines()
+            snippet = "\n".join(all_lines[-50:])
             session.add(
                 Stacktrace(
                     failure_id=failure.id,
                     excerpt=snippet,
-                    line_count=len(snippet.splitlines()),
+                    line_count=len(all_lines),
+                    full_text=stacktrace_text,
                 )
             )
 
@@ -100,6 +116,21 @@ async def _persist_failure_and_rca(
                 latency_ms=rca_result.get("latency_ms"),
             )
         )
+
+        if diff and diff.get("patch"):
+            session.add(
+                CommitDiff(
+                    failure_id=failure.id,
+                    provider=diff.get("provider", event_type),
+                    ref=diff.get("ref"),
+                    files_changed=int(diff.get("files_changed") or 0),
+                    additions=int(diff.get("additions") or 0),
+                    deletions=int(diff.get("deletions") or 0),
+                    patch=diff.get("patch"),
+                    truncated=bool(diff.get("truncated")),
+                )
+            )
+
         await session.commit()
 
 
@@ -120,13 +151,33 @@ def _as_str(value: Any) -> str | None:
 
 def _execute_rca(task_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     from tracebow.agent import RCAAgent
+    from tracebow.services import repo_access
+
+    # Register the source (ingress is always accepted) so it shows up in the
+    # portal's Repositories view and can be granted outbound access.
+    source = repo_access.derive_source(event_type, payload)
+    if source is not None:
+        repo_access.register_repository_sync(*source)
 
     agent = RCAAgent()
     result: dict[str, Any] = _run_async(agent.analyze(event_type, payload))
     result["task_id"] = task_id
 
+    # Gate outbound access and (when allowed) capture the latest failing diff.
+    diff: dict[str, Any] | None = None
+    if source is not None:
+        provider, identifier = source
+        access = repo_access.check_access_sync(
+            provider,
+            identifier,
+            reason=f"RCA for {event_type} event on {identifier}",
+        )
+        result["repo_access"] = access
+        if access == repo_access.ALLOWED:
+            diff = _maybe_fetch_diff(provider, identifier, payload)
+
     try:
-        _run_async(_persist_failure_and_rca(task_id, event_type, payload, result))
+        _run_async(_persist_failure_and_rca(task_id, event_type, payload, result, diff))
     except Exception:
         # Persistence must never break the RCA response.
         logger.exception("Failed to persist Failure / RcaReport (task=%s)", task_id)

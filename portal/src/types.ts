@@ -15,6 +15,19 @@ export interface Stacktrace {
   excerpt: string;
   line_count: number;
   language?: string | null;
+  full_text?: string | null;
+  created_at?: string | null;
+}
+
+export interface CommitDiff {
+  id: string;
+  provider: string;
+  ref?: string | null;
+  files_changed: number;
+  additions: number;
+  deletions: number;
+  patch?: string | null;
+  truncated: boolean;
   created_at?: string | null;
 }
 
@@ -37,6 +50,7 @@ export interface FailureDetail extends Failure {
   build_url?: string | null;
   task_id?: string | null;
   stacktraces: Stacktrace[];
+  diffs?: CommitDiff[];
   rca?: RcaReport | null;
 }
 
@@ -83,6 +97,73 @@ export interface BackupSettingsUpdate {
    * Never returned by the API.
    */
   deploy_key?: string | null;
+}
+
+export interface Repository {
+  id: string;
+  provider: string;
+  identifier: string;
+  display_name?: string | null;
+  access_status: "allowed" | "denied" | "pending";
+  auth_method:
+    | "none"
+    | "github_pat"
+    | "ssh_deploy_key"
+    | "github_app"
+    | "oauth";
+  has_credential: boolean;
+  credential_fingerprint?: string | null;
+  last_seen_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface RepositoryUpdate {
+  access_status?: "allowed" | "denied" | "pending";
+  auth_method?: Repository["auth_method"];
+  display_name?: string | null;
+  credential?: string | null;
+}
+
+export interface AccessRequest {
+  id: string;
+  provider: string;
+  identifier: string;
+  repository_id?: string | null;
+  reason?: string | null;
+  status: "pending" | "approved" | "denied";
+  requested_by: string;
+  resolved_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface EgressEvent {
+  id: string;
+  destination_host: string;
+  destination_kind: "internal" | "external";
+  purpose?: string | null;
+  method?: string | null;
+  request_bytes: number;
+  response_bytes: number;
+  status?: string | null;
+  sensitive_flags: string[];
+  blocked: boolean;
+  created_at?: string | null;
+}
+
+export interface SecuritySummary {
+  posture: "internal_only" | "external_configured";
+  external_integrations: string[];
+  total_events: number;
+  external_events: number;
+  internal_events: number;
+  sensitive_events: number;
+  blocked_events: number;
+  destinations: Array<{
+    host: string;
+    kind: "internal" | "external";
+    count: number;
+    last_seen?: string | null;
+  }>;
 }
 
 export interface TaskAccepted {

@@ -5,9 +5,13 @@ Postgres in production, SQLite (aiosqlite) in tests/CLI. Switch via
 """
 
 from tracebow.db.models import (
+    AccessRequest,
     Base,
+    CommitDiff,
+    EgressEvent,
     Failure,
     RcaReport,
+    Repository,
     Stacktrace,
     WikiBackupLog,
     WikiSettings,
@@ -23,9 +27,13 @@ from tracebow.db.session import (
 )
 
 __all__ = [
+    "AccessRequest",
     "Base",
+    "CommitDiff",
+    "EgressEvent",
     "Failure",
     "RcaReport",
+    "Repository",
     "Stacktrace",
     "WikiBackupLog",
     "WikiSettings",

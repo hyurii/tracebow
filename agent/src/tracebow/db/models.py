@@ -25,6 +25,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import (
@@ -79,6 +80,11 @@ class Failure(Base):
         cascade="all, delete-orphan",
         init=False,
     )
+    commit_diffs: Mapped[list[CommitDiff]] = relationship(
+        back_populates="failure",
+        cascade="all, delete-orphan",
+        init=False,
+    )
 
     __table_args__ = (
         Index("ix_failures_source_triggered", "source", "triggered_at"),
@@ -120,6 +126,9 @@ class Stacktrace(Base):
 
     line_count: Mapped[int] = mapped_column(default=0)
     language: Mapped[str | None] = mapped_column(String(32), default=None)
+    # Complete captured log. ``excerpt`` stays the trimmed preview so existing
+    # list views remain cheap; ``full_text`` holds the untruncated payload.
+    full_text: Mapped[str | None] = mapped_column(Text, default=None)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, init=False, default_factory=_uuid)
     created_at: Mapped[datetime] = mapped_column(
@@ -202,3 +211,183 @@ class WikiBackupLog(Base):
         default=None,
         server_default=func.now(),
     )
+
+
+class CommitDiff(Base):
+    """The unified diff of the change that most likely caused a failure.
+
+    We store only the *latest* diff (failing commit or PR) per failure — full
+    repository indexing is intentionally out of scope. ``patch`` may be
+    truncated for very large changes; ``truncated`` records that.
+    """
+
+    __tablename__ = "commit_diffs"
+
+    failure_id: Mapped[str] = mapped_column(
+        ForeignKey("failures.id", ondelete="CASCADE"),
+    )
+    provider: Mapped[str] = mapped_column(String(32))
+
+    ref: Mapped[str | None] = mapped_column(String(128), default=None)
+    files_changed: Mapped[int] = mapped_column(default=0)
+    additions: Mapped[int] = mapped_column(default=0)
+    deletions: Mapped[int] = mapped_column(default=0)
+    patch: Mapped[str | None] = mapped_column(Text, default=None)
+    truncated: Mapped[bool] = mapped_column(default=False)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, init=False, default_factory=_uuid)
+    created_at: Mapped[datetime] = mapped_column(
+        init=False,
+        default=None,
+        server_default=func.now(),
+    )
+
+    failure: Mapped[Failure] = relationship(back_populates="commit_diffs", init=False)
+
+
+class Repository(Base):
+    """A code/CI source Tracebow knows about, plus its outbound-access grant.
+
+    Ingress (a CI pipeline pushing logs to us) is always accepted. This row
+    governs *outbound* access: whether the agent may call back out to the
+    provider (fetch diffs, read PRs, query builds) for this repo/job.
+    """
+
+    __tablename__ = "repositories"
+
+    provider: Mapped[str] = mapped_column(String(32))
+    identifier: Mapped[str] = mapped_column(String(512))
+
+    display_name: Mapped[str | None] = mapped_column(String(512), default=None)
+    # allowed | denied | pending
+    access_status: Mapped[str] = mapped_column(String(16), default="pending")
+    # none | github_pat | ssh_deploy_key | github_app | oauth
+    auth_method: Mapped[str] = mapped_column(String(32), default="none")
+    credential_encrypted: Mapped[bytes | None] = mapped_column(default=None)
+    credential_fingerprint: Mapped[str | None] = mapped_column(String(128), default=None)
+    last_seen_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, init=False, default_factory=_uuid)
+    created_at: Mapped[datetime] = mapped_column(
+        init=False,
+        default=None,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        init=False,
+        default=None,
+        server_default=func.now(),
+        server_onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "identifier", name="uq_repositories_provider_identifier"),
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "provider": self.provider,
+            "identifier": self.identifier,
+            "display_name": self.display_name,
+            "access_status": self.access_status,
+            "auth_method": self.auth_method,
+            "has_credential": self.credential_encrypted is not None,
+            "credential_fingerprint": self.credential_fingerprint,
+            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+
+
+class AccessRequest(Base):
+    """A pending ask to grant outbound access to a repo/job.
+
+    Created by the access gate (or, once the LLM reason node lands, by the
+    agent itself via the ``request_access`` tool) whenever a needed source is
+    not yet ``allowed``. A human approves or denies it from the portal.
+    """
+
+    __tablename__ = "access_requests"
+
+    provider: Mapped[str] = mapped_column(String(32))
+    identifier: Mapped[str] = mapped_column(String(512))
+
+    repository_id: Mapped[str | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL"),
+        default=None,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, default=None)
+    # pending | approved | denied
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    requested_by: Mapped[str] = mapped_column(String(32), default="agent")
+    resolved_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, init=False, default_factory=_uuid)
+    created_at: Mapped[datetime] = mapped_column(
+        init=False,
+        default=None,
+        server_default=func.now(),
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "provider": self.provider,
+            "identifier": self.identifier,
+            "repository_id": self.repository_id,
+            "reason": self.reason,
+            "status": self.status,
+            "requested_by": self.requested_by,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+
+
+class EgressEvent(Base):
+    """One record per outbound network attempt — the security dashboard's data.
+
+    Recorded at the two egress choke points (the shared HTTP helper and the
+    wiki push). ``destination_kind`` distinguishes internal infra (ollama,
+    postgres, redis) from genuinely external hosts (github, slack, ...).
+    """
+
+    __tablename__ = "egress_events"
+
+    destination_host: Mapped[str] = mapped_column(String(255))
+    destination_kind: Mapped[str] = mapped_column(String(16))  # internal | external
+
+    purpose: Mapped[str | None] = mapped_column(String(128), default=None)
+    method: Mapped[str | None] = mapped_column(String(16), default=None)
+    request_bytes: Mapped[int] = mapped_column(default=0)
+    response_bytes: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str | None] = mapped_column(String(32), default=None)
+    # none_as_null so "no flags" is SQL NULL (queryable), not a JSON ``null``.
+    sensitive_flags: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True), default=None)
+    blocked: Mapped[bool] = mapped_column(default=False)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, init=False, default_factory=_uuid)
+    created_at: Mapped[datetime] = mapped_column(
+        init=False,
+        default=None,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        Index("ix_egress_events_created", "created_at"),
+        Index("ix_egress_events_kind", "destination_kind"),
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "destination_host": self.destination_host,
+            "destination_kind": self.destination_kind,
+            "purpose": self.purpose,
+            "method": self.method,
+            "request_bytes": self.request_bytes,
+            "response_bytes": self.response_bytes,
+            "status": self.status,
+            "sensitive_flags": self.sensitive_flags or [],
+            "blocked": self.blocked,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }

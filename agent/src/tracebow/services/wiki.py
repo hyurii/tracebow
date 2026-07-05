@@ -361,6 +361,7 @@ class WikiService:
                 check=False,
                 timeout=60,
             )
+            self._record_push_egress(remote_url, result.returncode)
             if result.returncode != 0:
                 stderr = (result.stderr or "").strip() or "unknown error"
                 raise WikiError(f"git push failed: {stderr}")
@@ -368,6 +369,21 @@ class WikiService:
         finally:
             if tmpdir is not None:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @staticmethod
+    def _record_push_egress(remote_url: str, returncode: int) -> None:
+        """Best-effort egress record for the wiki backup push."""
+        try:
+            from tracebow.services.egress import record_egress
+
+            record_egress(
+                host=remote_url,
+                purpose="wiki_push",
+                method="git-push",
+                status="ok" if returncode == 0 else f"exit_{returncode}",
+            )
+        except Exception:
+            logger.debug("Failed to record wiki push egress", exc_info=True)
 
     # ------------------------------------------------------------------
     # Helpers

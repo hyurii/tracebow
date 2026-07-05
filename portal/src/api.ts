@@ -1,9 +1,14 @@
 import type {
+  AccessRequest,
   BackupSettings,
   BackupSettingsUpdate,
+  EgressEvent,
   Failure,
   FailureDetail,
   RcaReport,
+  Repository,
+  RepositoryUpdate,
+  SecuritySummary,
   TaskAccepted,
   WikiDoc,
   WikiDocContent,
@@ -39,7 +44,10 @@ export const api = {
   // ---- failures ------------------------------------------------------------
   listFailures: (limit = 100) =>
     request<{ failures: Failure[] }>(`/failures?limit=${limit}`),
-  getFailure: (id: string) => request<FailureDetail>(`/failures/${id}`),
+  getFailure: (id: string, includeFull = false) =>
+    request<FailureDetail>(
+      `/failures/${id}${includeFull ? "?include_full=true" : ""}`,
+    ),
   getFailureRca: (id: string) => request<RcaReport>(`/failures/${id}/rca`),
   requestRca: (failureId: string) =>
     request<TaskAccepted>(`/rca`, {
@@ -72,6 +80,36 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+
+  // ---- repositories + access -----------------------------------------------
+  listRepositories: () =>
+    request<{ repositories: Repository[] }>(`/repositories`),
+  updateRepository: (id: string, update: RepositoryUpdate) =>
+    request<Repository>(`/repositories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(update),
+    }),
+  listAccessRequests: (status?: string) =>
+    request<{ requests: AccessRequest[] }>(
+      `/access-requests${status ? `?status=${status}` : ""}`,
+    ),
+  resolveAccessRequest: (id: string, decision: "approved" | "denied") =>
+    request<AccessRequest>(`/access-requests/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
+
+  // ---- security ------------------------------------------------------------
+  getSecuritySummary: () => request<SecuritySummary>(`/security/summary`),
+  listEgressEvents: (params: { kind?: string; sensitive?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (params.kind) q.set("kind", params.kind);
+    if (params.sensitive) q.set("sensitive", "true");
+    const qs = q.toString();
+    return request<{ events: EgressEvent[] }>(
+      `/security/egress${qs ? `?${qs}` : ""}`,
+    );
+  },
 
   // ---- tasks ---------------------------------------------------------------
   getTask: <T = unknown>(taskId: string) =>

@@ -7,12 +7,11 @@ Graph shape::
                                ├── yes ─► read_wiki ─► finalize (branch=wiki_hit)
                                └── no  ─► reason ─► write_wiki ─► finalize (branch=novel_reasoned)
 
-The ``reason`` node is a DETERMINISTIC STUB by design — we wanted the
-full LangGraph wiring, the native tools, the wiki I/O, the DB, and the
-API to land first. When ``OLLAMA_ENABLED=true`` and Ollama is reachable,
-a follow-up change will swap the stub for a real ``ChatOllama`` call
-that binds :mod:`tracebow.tools.ALL_TOOLS`. The graph shape does not
-need to change for that swap.
+The ``reason`` node runs a real, tool-calling ``ChatOllama`` (bound to
+:mod:`tracebow.tools.ALL_TOOLS`) when ``OLLAMA_ENABLED=true``. If Ollama
+is disabled or any part of the LLM/tool loop fails, it degrades to a
+deterministic templated summary (:func:`_stub_reason`) so RCA never
+crashes. The graph shape is identical in both modes.
 
 State is a plain ``TypedDict`` so it can round-trip through Celery's
 JSON serializer — we never put live Python objects in there.
@@ -20,6 +19,7 @@ JSON serializer — we never put live Python objects in there.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, TypedDict
@@ -110,14 +110,14 @@ def _node_read_wiki(state: GraphState) -> GraphState:
     }
 
 
-def _node_reason(state: GraphState) -> GraphState:
-    """Deterministic stub for now — see module docstring.
+def _stub_reason(state: GraphState, *, model_used: str = "stub:deterministic") -> GraphState:
+    """Deterministic templated fallback for the reason node.
 
-    Emits a templated recommendation using whatever structured context
-    we already have. Honest about being a stub so the UI shows the
-    right caveat and we don't pretend we called an LLM.
+    Emits a first-pass recommendation from whatever structured context we
+    already have. Honest about being a stub so the UI shows the right
+    caveat and we don't pretend we called an LLM. Used both when Ollama is
+    disabled and as the never-crash fallback if a real LLM call fails.
     """
-    settings = get_settings()
     event_type = state.get("event_type", "unknown")
     stacktrace = state.get("stacktrace", "")
     payload = state.get("payload", {}) or {}
@@ -150,15 +150,146 @@ def _node_reason(state: GraphState) -> GraphState:
         ]
     )
 
+    settings = get_settings()
     mode = "stub_template" if not settings.ollama_enabled else "stub_template_ollama_skipped"
     trace = list(state.get("tool_trace", []))
     trace.append({"node": "reason", "mode": mode})
     return {
         **state,
         "summary": body,
-        "model_used": "stub:deterministic",
+        "model_used": model_used,
         "tool_trace": trace,
     }
+
+
+_REASON_SYSTEM_PROMPT = (
+    "You are Tracebow, a senior SRE agent performing root-cause analysis on a "
+    "CI/CD failure. You operate in a zero-egress environment: your only sources "
+    "of information are the provided tools (Jenkins, GitHub, Jira, Slack, and the "
+    "company wiki). Use the tools to gather concrete evidence — recent commits, "
+    "console logs, related incidents — before concluding. Do not guess when a "
+    "tool can confirm. When you are confident, stop calling tools and reply with "
+    "a concise root-cause analysis followed by a concrete, actionable fix. Keep "
+    "the final answer focused and free of tool-call chatter."
+)
+
+
+def _reason_human_prompt(state: GraphState) -> str:
+    event_type = state.get("event_type", "unknown")
+    stacktrace = state.get("stacktrace", "")
+    payload = state.get("payload", {}) or {}
+
+    lines = [f"Event type: {event_type}"]
+    repo = payload.get("repo") or payload.get("repository")
+    if repo:
+        lines.append(f"Repository: {repo}")
+    if payload.get("job_name"):
+        lines.append(f"Job: {payload['job_name']}")
+    commit = payload.get("commit_sha") or payload.get("git_commit") or payload.get("head_sha")
+    if commit:
+        lines.append(f"Commit: {commit}")
+
+    hint = _first_failure_line(stacktrace)
+    if hint:
+        lines.append(f"First failure signal: {hint}")
+
+    near_misses = state.get("wiki_hits") or []
+    if near_misses:
+        lines.append("")
+        lines.append("Sub-threshold wiki near-misses (may or may not be relevant):")
+        for hit in near_misses:
+            lines.append(f"- {hit.get('path')} (score={hit.get('score')}): {hit.get('title')}")
+
+    lines.append("")
+    lines.append("Stacktrace (last 50 lines):")
+    lines.append("```")
+    lines.append(stacktrace or "(no stacktrace captured)")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _node_reason(state: GraphState) -> GraphState:
+    """Agentic RCA step.
+
+    Runs a bounded ReAct loop over a tool-bound ``ChatOllama``: the model
+    reasons over the failure, optionally calls the native tools to gather
+    evidence, and returns a root cause + fix. Falls back to the
+    deterministic stub whenever Ollama is disabled or anything goes wrong —
+    RCA must never crash the graph.
+    """
+    settings = get_settings()
+    if not settings.ollama_enabled:
+        return _stub_reason(state)
+
+    try:
+        from langchain_core.messages import (
+            AIMessage,
+            HumanMessage,
+            SystemMessage,
+            ToolMessage,
+        )
+
+        from tracebow.llm import build_reasoning_llm, invoke_tool
+
+        llm = build_reasoning_llm()
+        messages: list[Any] = [
+            SystemMessage(content=_REASON_SYSTEM_PROMPT),
+            HumanMessage(content=_reason_human_prompt(state)),
+        ]
+        trace = list(state.get("tool_trace", []))
+
+        final: AIMessage | None = None
+        for _ in range(max(1, settings.reason_max_tool_iterations)):
+            response = llm.invoke(messages)
+            messages.append(response)
+            final = response
+
+            tool_calls = getattr(response, "tool_calls", None) or []
+            if not tool_calls:
+                break
+
+            for call in tool_calls:
+                name = call.get("name", "")
+                args = call.get("args", {}) or {}
+                result = invoke_tool(name, args)
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(result, default=str),
+                        tool_call_id=call.get("id", ""),
+                    )
+                )
+                trace.append({"node": "reason", "tool": name, "status": result.get("status", "ok")})
+
+        summary = _message_text(final)
+        if not summary.strip():
+            raise ValueError("empty LLM response")
+
+        return {
+            **state,
+            "summary": summary,
+            "model_used": f"ollama:{settings.ollama_model_rca}",
+            "tool_trace": trace,
+        }
+    except Exception as exc:  # RCA must degrade, never crash
+        logger.warning("LLM reasoning failed, falling back to stub: %s", exc)
+        return _stub_reason(state, model_used="stub:ollama_error")
+
+
+def _message_text(message: Any) -> str:
+    if message is None:
+        return ""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for chunk in content:
+            if isinstance(chunk, str):
+                parts.append(chunk)
+            elif isinstance(chunk, dict) and "text" in chunk:
+                parts.append(str(chunk["text"]))
+        return "".join(parts)
+    return str(content)
 
 
 def _node_write_wiki(state: GraphState) -> GraphState:
