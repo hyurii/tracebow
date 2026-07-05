@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Container runs as root inside an isolated Docker network (Checkov CKV_DOCKER_3
 # skipped in .checkov.yaml). Wiki volume permissions require root on first boot.
