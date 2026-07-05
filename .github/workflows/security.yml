@@ -37,15 +37,15 @@ jobs:
           cache-dependency-path: tracebow-cli/go.mod
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
 
   semgrep:
     name: "Semgrep SAST"
@@ -61,7 +61,7 @@ jobs:
           --exclude-rule=dockerfile.security.missing-user.missing-user
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: semgrep.sarif
@@ -84,7 +84,7 @@ jobs:
             ./
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: /tmp/osv-scanner-results.sarif
@@ -185,7 +185,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-vuln-${{ matrix.component }}.sarif
@@ -244,7 +244,7 @@ jobs:
           output_file_path: console,checkov.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: checkov.sarif
