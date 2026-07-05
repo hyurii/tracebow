@@ -30,6 +30,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version-file: tracebow-cli/go.mod
+          cache-dependency-path: tracebow-cli/go.mod
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:

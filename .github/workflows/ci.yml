@@ -125,6 +125,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           working-directory: tracebow-cli
+          version: v2.12.2
 
   cli-build:
     name: "CLI: build (cross-compile)"
