@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 
-# git is required at runtime by GitPython (the Markdown wiki is git-backed).
+# Container runs as root inside an isolated Docker network (Checkov CKV_DOCKER_3
+# skipped in .checkov.yaml). Wiki volume permissions require root on first boot.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -25,5 +26,4 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8080
 
-# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["uv", "run", "uvicorn", "tracebow.main:app", "--host", "0.0.0.0", "--port", "8080"]

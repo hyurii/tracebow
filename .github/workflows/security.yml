@@ -50,7 +50,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Semgrep
-        run: semgrep scan --config=auto --sarif --output=semgrep.sarif .
+        run: >
+          semgrep scan --config=auto --sarif --output=semgrep.sarif .
+          --exclude-rule=dockerfile.security.missing-user.missing-user
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
