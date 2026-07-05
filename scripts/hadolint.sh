@@ -9,7 +9,9 @@ if command -v hadolint >/dev/null 2>&1; then
 fi
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  exec docker run --rm -i -v "$PWD:$PWD" -w "$PWD" "hadolint/hadolint:${HADOLINT_VERSION#v}" hadolint "$@"
+  # Docker Hub publishes hadolint image tags with the leading "v" (e.g.
+  # hadolint/hadolint:v2.14.0); the un-prefixed "2.14.0" tag does not exist.
+  exec docker run --rm -i -v "$PWD:$PWD" -w "$PWD" "hadolint/hadolint:${HADOLINT_VERSION}" hadolint "$@"
 fi
 
 cache_bin() {
