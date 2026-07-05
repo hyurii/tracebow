@@ -7,9 +7,8 @@ export default function Settings() {
     <div className="settings-page">
       <h1>Configuration</h1>
       <p className="settings-desc">
-        All data stays local — zero egress. Integrations below are read-only
-        references to environment variables. The backup section below is managed
-        at runtime through this UI.
+        All data stays local — zero egress. Integrations below are read-only references to
+        environment variables. The backup section below is managed at runtime through this UI.
       </p>
 
       <section className="settings-section">
@@ -91,9 +90,7 @@ function BackupSection() {
       setEnabled(s.enabled);
       setRemoteUrl(s.remote_url ?? "");
       setBranch(s.branch ?? "main");
-      setAutoBackupHours(
-        s.auto_backup_hours != null ? String(s.auto_backup_hours) : "",
-      );
+      setAutoBackupHours(s.auto_backup_hours != null ? String(s.auto_backup_hours) : "");
     } catch (err) {
       setLoadError(String((err as Error).message ?? err));
     }
@@ -113,9 +110,7 @@ function BackupSection() {
         enabled,
         remote_url: remoteUrl.trim() || null,
         branch: branch.trim() || "main",
-        auto_backup_hours: autoBackupHours.trim()
-          ? Number(autoBackupHours)
-          : null,
+        auto_backup_hours: autoBackupHours.trim() ? Number(autoBackupHours) : null,
       };
       if (rotateKey && deployKey.trim()) {
         body.deploy_key = deployKey;
@@ -149,10 +144,9 @@ function BackupSection() {
     <section className="settings-section">
       <h2>Wiki backup</h2>
       <p className="settings-desc">
-        Optionally push the Git-backed wiki to <strong>any</strong> Git remote
-        over SSH — GitHub, GitLab, Gitea, Bitbucket, or self-hosted Git.
-        Tracebow never makes outbound calls unless you configure this. The
-        deploy key is encrypted at rest with <code>WIKI_SECRET_KEY</code> and is
+        Optionally push the Git-backed wiki to <strong>any</strong> Git remote over SSH — GitHub,
+        GitLab, Gitea, Bitbucket, or self-hosted Git. Tracebow never makes outbound calls unless you
+        configure this. The deploy key is encrypted at rest with <code>WIKI_SECRET_KEY</code> and is
         never displayed again after you save it.
       </p>
       {loadError && <p className="wiki-error">Could not load: {loadError}</p>}
@@ -176,18 +170,13 @@ function BackupSection() {
               onChange={(e) => setRemoteUrl(e.target.value)}
             />
             <span className="backup-hint">
-              Any SSH Git URL is accepted (GitHub, GitLab, Gitea, Bitbucket,
-              self-hosted).
+              Any SSH Git URL is accepted (GitHub, GitLab, Gitea, Bitbucket, self-hosted).
             </span>
           </label>
 
           <label className="backup-field">
             Branch
-            <input
-              type="text"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-            />
+            <input type="text" value={branch} onChange={(e) => setBranch(e.target.value)} />
           </label>
 
           <label className="backup-field">
@@ -219,9 +208,7 @@ function BackupSection() {
                 checked={rotateKey}
                 onChange={(e) => setRotateKey(e.target.checked)}
               />
-              {settings.has_deploy_key
-                ? "Replace deploy key"
-                : "Add deploy key"}
+              {settings.has_deploy_key ? "Replace deploy key" : "Add deploy key"}
             </label>
             {rotateKey && (
               <label className="backup-field">
@@ -233,8 +220,7 @@ function BackupSection() {
                   rows={8}
                 />
                 <small className="backup-hint">
-                  The key is sent once and stored encrypted. It will never be
-                  shown again.
+                  The key is sent once and stored encrypted. It will never be shown again.
                 </small>
               </label>
             )}
@@ -247,9 +233,7 @@ function BackupSection() {
               {settings.last_backup_error && (
                 <>
                   <br />
-                  <span className="wiki-error">
-                    {settings.last_backup_error}
-                  </span>
+                  <span className="wiki-error">{settings.last_backup_error}</span>
                 </>
               )}
             </p>

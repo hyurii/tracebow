@@ -47,10 +47,7 @@ export function Dashboard() {
 
       <main className="content">
         {activeTab === "failures" && (
-          <FailuresList
-            failures={failures}
-            onRefresh={() => window.location.reload()}
-          />
+          <FailuresList failures={failures} onRefresh={() => window.location.reload()} />
         )}
         {activeTab === "chat" && <ChatInterface />}
         {activeTab === "settings" && <SettingsPanel />}
@@ -64,8 +61,8 @@ function SettingsPanel() {
     <div className="settings-panel">
       <h2>Configuration</h2>
       <p className="settings-desc">
-        Configure API tokens and ingestion parameters for connected tools. All
-        data stays local—zero egress.
+        Configure API tokens and ingestion parameters for connected tools. All data stays local—zero
+        egress.
       </p>
       <div className="settings-grid">
         <SettingCard

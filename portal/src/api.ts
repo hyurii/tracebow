@@ -42,12 +42,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   // ---- failures ------------------------------------------------------------
-  listFailures: (limit = 100) =>
-    request<{ failures: Failure[] }>(`/failures?limit=${limit}`),
+  listFailures: (limit = 100) => request<{ failures: Failure[] }>(`/failures?limit=${limit}`),
   getFailure: (id: string, includeFull = false) =>
-    request<FailureDetail>(
-      `/failures/${id}${includeFull ? "?include_full=true" : ""}`,
-    ),
+    request<FailureDetail>(`/failures/${id}${includeFull ? "?include_full=true" : ""}`),
   getFailureRca: (id: string) => request<RcaReport>(`/failures/${id}/rca`),
   requestRca: (failureId: string) =>
     request<TaskAccepted>(`/rca`, {
@@ -57,12 +54,9 @@ export const api = {
 
   // ---- wiki ---------------------------------------------------------------
   listWiki: () => request<{ docs: WikiDoc[] }>(`/wiki`),
-  readWiki: (path: string) =>
-    request<WikiDocContent>(`/wiki/doc?path=${encodeURIComponent(path)}`),
+  readWiki: (path: string) => request<WikiDocContent>(`/wiki/doc?path=${encodeURIComponent(path)}`),
   searchWiki: (query: string) =>
-    request<{ hits: WikiSearchHit[] }>(
-      `/wiki/search?q=${encodeURIComponent(query)}`,
-    ),
+    request<{ hits: WikiSearchHit[] }>(`/wiki/search?q=${encodeURIComponent(query)}`),
 
   // ---- backup settings -----------------------------------------------------
   getBackupSettings: () => request<BackupSettings>(`/settings/backup`),
@@ -71,8 +65,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(update),
     }),
-  triggerBackup: () =>
-    request<TaskAccepted>(`/settings/backup/trigger`, { method: "POST" }),
+  triggerBackup: () => request<TaskAccepted>(`/settings/backup/trigger`, { method: "POST" }),
 
   // ---- chat ---------------------------------------------------------------
   chat: (message: string) =>
@@ -82,17 +75,14 @@ export const api = {
     }),
 
   // ---- repositories + access -----------------------------------------------
-  listRepositories: () =>
-    request<{ repositories: Repository[] }>(`/repositories`),
+  listRepositories: () => request<{ repositories: Repository[] }>(`/repositories`),
   updateRepository: (id: string, update: RepositoryUpdate) =>
     request<Repository>(`/repositories/${id}`, {
       method: "PATCH",
       body: JSON.stringify(update),
     }),
   listAccessRequests: (status?: string) =>
-    request<{ requests: AccessRequest[] }>(
-      `/access-requests${status ? `?status=${status}` : ""}`,
-    ),
+    request<{ requests: AccessRequest[] }>(`/access-requests${status ? `?status=${status}` : ""}`),
   resolveAccessRequest: (id: string, decision: "approved" | "denied") =>
     request<AccessRequest>(`/access-requests/${id}/resolve`, {
       method: "POST",
@@ -106,9 +96,7 @@ export const api = {
     if (params.kind) q.set("kind", params.kind);
     if (params.sensitive) q.set("sensitive", "true");
     const qs = q.toString();
-    return request<{ events: EgressEvent[] }>(
-      `/security/egress${qs ? `?${qs}` : ""}`,
-    );
+    return request<{ events: EgressEvent[] }>(`/security/egress${qs ? `?${qs}` : ""}`);
   },
 
   // ---- tasks ---------------------------------------------------------------
@@ -123,10 +111,7 @@ export const api = {
 
 export async function pollTask<T>(
   taskId: string,
-  {
-    intervalMs = 1000,
-    timeoutMs = 120_000,
-  }: { intervalMs?: number; timeoutMs?: number } = {},
+  { intervalMs = 1000, timeoutMs = 120_000 }: { intervalMs?: number; timeoutMs?: number } = {},
 ): Promise<T> {
   const started = Date.now();
   while (true) {

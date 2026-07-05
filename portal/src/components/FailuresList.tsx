@@ -42,8 +42,8 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
       </div>
       {failures.length === 0 ? (
         <p className="empty-state">
-          No failures recorded. Trigger a Jenkins or GitHub Actions failure,
-          then call the webhook or run the CLI agent.
+          No failures recorded. Trigger a Jenkins or GitHub Actions failure, then call the webhook
+          or run the CLI agent.
         </p>
       ) : (
         <div className="failures-layout">
@@ -63,9 +63,7 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
                 )}
                 {f.repo && <span className="repo">{f.repo}</span>}
                 <span className="time">
-                  {f.triggered_at
-                    ? new Date(f.triggered_at).toLocaleString()
-                    : "—"}
+                  {f.triggered_at ? new Date(f.triggered_at).toLocaleString() : "—"}
                 </span>
                 {f.rca_summary && <span className="badge">RCA ready</span>}
               </li>
@@ -86,9 +84,7 @@ export function FailuresList({ failures, onRefresh }: FailuresListProps) {
 }
 
 function RcaDetail({ detail }: { detail: FailureDetail }) {
-  const rcaHtml = detail.rca?.summary
-    ? DOMPurify.sanitize(md.render(detail.rca.summary))
-    : null;
+  const rcaHtml = detail.rca?.summary ? DOMPurify.sanitize(md.render(detail.rca.summary)) : null;
   return (
     <div className="rca-content">
       <h3>Root Cause Analysis</h3>
@@ -96,9 +92,7 @@ function RcaDetail({ detail }: { detail: FailureDetail }) {
         <>
           <div className="rca-meta">
             <span className={`rca-branch-badge ${detail.rca.branch_taken}`}>
-              {detail.rca.branch_taken === "wiki_hit"
-                ? "Wiki hit"
-                : "Novel — reasoned"}
+              {detail.rca.branch_taken === "wiki_hit" ? "Wiki hit" : "Novel — reasoned"}
             </span>
             {detail.rca.wiki_doc_path && (
               <span>
@@ -111,15 +105,10 @@ function RcaDetail({ detail }: { detail: FailureDetail }) {
                 Model: <code>{detail.rca.model_used}</code>
               </span>
             )}
-            {detail.rca.latency_ms != null && (
-              <span>{detail.rca.latency_ms} ms</span>
-            )}
+            {detail.rca.latency_ms != null && <span>{detail.rca.latency_ms} ms</span>}
           </div>
           {rcaHtml && (
-            <article
-              className="rca-markdown"
-              dangerouslySetInnerHTML={{ __html: rcaHtml }}
-            />
+            <article className="rca-markdown" dangerouslySetInnerHTML={{ __html: rcaHtml }} />
           )}
         </>
       ) : (
@@ -147,12 +136,8 @@ function RcaDetail({ detail }: { detail: FailureDetail }) {
 
 function StacktraceView({ stacktrace }: { stacktrace: Stacktrace }) {
   const [expanded, setExpanded] = useState(false);
-  const hasFull =
-    !!stacktrace.full_text && stacktrace.full_text !== stacktrace.excerpt;
-  const shown =
-    expanded && stacktrace.full_text
-      ? stacktrace.full_text
-      : stacktrace.excerpt;
+  const hasFull = !!stacktrace.full_text && stacktrace.full_text !== stacktrace.excerpt;
+  const shown = expanded && stacktrace.full_text ? stacktrace.full_text : stacktrace.excerpt;
 
   const copy = () => {
     void navigator.clipboard?.writeText(stacktrace.full_text ?? shown);
@@ -164,11 +149,7 @@ function StacktraceView({ stacktrace }: { stacktrace: Stacktrace }) {
         <span className="stacktrace-meta">{stacktrace.line_count} lines</span>
         <span className="stacktrace-actions">
           {hasFull && (
-            <button
-              type="button"
-              className="btn-link"
-              onClick={() => setExpanded((v) => !v)}
-            >
+            <button type="button" className="btn-link" onClick={() => setExpanded((v) => !v)}>
               {expanded ? "Show tail only" : "Show full log"}
             </button>
           )}

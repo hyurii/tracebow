@@ -36,28 +36,24 @@ export default function Security() {
     <div className="security-page">
       <h1>Security &amp; egress</h1>
       <p className="lead">
-        Tracebow is designed to keep your data in-network. This page shows every
-        outbound network attempt it has made, classified as internal
-        infrastructure or genuinely external. It is an audit view — enforcement
-        (a network firewall) still belongs to your deployment.
+        Tracebow is designed to keep your data in-network. This page shows every outbound network
+        attempt it has made, classified as internal infrastructure or genuinely external. It is an
+        audit view — enforcement (a network firewall) still belongs to your deployment.
       </p>
       {error && <p className="wiki-error">{error}</p>}
 
       {summary && (
         <>
-          <div
-            className={`posture-banner ${internalOnly ? "ok" : "warn"}`}
-            role="status"
-          >
+          <div className={`posture-banner ${internalOnly ? "ok" : "warn"}`} role="status">
             {internalOnly ? (
               <>
-                <strong>No external egress.</strong> All traffic stayed on your
-                local stack (Ollama, Postgres, Redis).
+                <strong>No external egress.</strong> All traffic stayed on your local stack (Ollama,
+                Postgres, Redis).
               </>
             ) : (
               <>
-                <strong>External integrations configured.</strong> Tracebow may
-                contact: {summary.external_integrations.join(", ") || "—"}.
+                <strong>External integrations configured.</strong> Tracebow may contact:{" "}
+                {summary.external_integrations.join(", ") || "—"}.
               </>
             )}
           </div>
@@ -100,11 +96,7 @@ export default function Security() {
                       <span className={`status-badge ${d.kind}`}>{d.kind}</span>
                     </td>
                     <td>{d.count}</td>
-                    <td>
-                      {d.last_seen
-                        ? new Date(d.last_seen).toLocaleString()
-                        : "—"}
-                    </td>
+                    <td>{d.last_seen ? new Date(d.last_seen).toLocaleString() : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -153,11 +145,7 @@ export default function Security() {
           <tbody>
             {events.map((ev) => (
               <tr key={ev.id} className={ev.blocked ? "row-blocked" : ""}>
-                <td>
-                  {ev.created_at
-                    ? new Date(ev.created_at).toLocaleTimeString()
-                    : "—"}
-                </td>
+                <td>{ev.created_at ? new Date(ev.created_at).toLocaleTimeString() : "—"}</td>
                 <td>
                   <code>{ev.destination_host}</code>
                 </td>
@@ -170,9 +158,7 @@ export default function Security() {
                 <td>{ev.status ?? "—"}</td>
                 <td>
                   {ev.sensitive_flags.length > 0 ? (
-                    <span className="status-badge denied">
-                      {ev.sensitive_flags.join(", ")}
-                    </span>
+                    <span className="status-badge denied">{ev.sensitive_flags.join(", ")}</span>
                   ) : (
                     "—"
                   )}

@@ -105,12 +105,7 @@ export interface Repository {
   identifier: string;
   display_name?: string | null;
   access_status: "allowed" | "denied" | "pending";
-  auth_method:
-    | "none"
-    | "github_pat"
-    | "ssh_deploy_key"
-    | "github_app"
-    | "oauth";
+  auth_method: "none" | "github_pat" | "ssh_deploy_key" | "github_app" | "oauth";
   has_credential: boolean;
   credential_fingerprint?: string | null;
   last_seen_at?: string | null;

@@ -44,9 +44,12 @@ repos:
 
   # ── TypeScript / React (portal/) ───────────────────────────────────
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+    rev: v3.1.0
     hooks:
       - id: prettier
+        # Pin to the exact prettier the portal (and CI) use, so the hook and
+        # `npm run format:check` never disagree.
+        additional_dependencies: ["prettier@3.8.2"]
         types_or: [javascript, jsx, ts, tsx, css, json, yaml, markdown]
         files: ^portal/
         exclude: ^portal/node_modules/

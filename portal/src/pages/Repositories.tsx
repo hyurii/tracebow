@@ -36,10 +36,9 @@ export default function Repositories() {
     <div className="repos-page">
       <h1>Repositories</h1>
       <p className="lead">
-        Every source that has sent Tracebow a failure. Ingress is always
-        accepted; below you control whether the agent may reach{" "}
-        <em>back out</em> to a source (to fetch diffs, PRs, or builds). New
-        sources start as <strong>pending</strong> until you allow them.
+        Every source that has sent Tracebow a failure. Ingress is always accepted; below you control
+        whether the agent may reach <em>back out</em> to a source (to fetch diffs, PRs, or builds).
+        New sources start as <strong>pending</strong> until you allow them.
       </p>
       {error && <p className="wiki-error">{error}</p>}
       {repos.length === 0 ? (
@@ -57,13 +56,7 @@ export default function Repositories() {
   );
 }
 
-function RepoCard({
-  repo,
-  onSaved,
-}: {
-  repo: Repository;
-  onSaved: () => void;
-}) {
+function RepoCard({ repo, onSaved }: { repo: Repository; onSaved: () => void }) {
   const [authMethod, setAuthMethod] = useState(repo.auth_method);
   const [credential, setCredential] = useState("");
   const [rotate, setRotate] = useState(false);
@@ -106,9 +99,7 @@ function RepoCard({
           <span className="source">{repo.provider}</span>
           <span className="repo-id">{repo.identifier}</span>
         </div>
-        <span className={`status-badge ${repo.access_status}`}>
-          {repo.access_status}
-        </span>
+        <span className={`status-badge ${repo.access_status}`}>{repo.access_status}</span>
       </div>
 
       <div className="repo-actions">
@@ -140,9 +131,7 @@ function RepoCard({
           Auth method
           <select
             value={authMethod}
-            onChange={(e) =>
-              setAuthMethod(e.target.value as Repository["auth_method"])
-            }
+            onChange={(e) => setAuthMethod(e.target.value as Repository["auth_method"])}
           >
             {AUTH_METHODS.map((m) => (
               <option key={m.value} value={m.value} disabled={!m.supported}>
@@ -156,9 +145,7 @@ function RepoCard({
           {repo.has_credential ? (
             <>
               <strong>Credential on file.</strong>{" "}
-              {repo.credential_fingerprint && (
-                <code>{repo.credential_fingerprint}</code>
-              )}
+              {repo.credential_fingerprint && <code>{repo.credential_fingerprint}</code>}
             </>
           ) : (
             <em>No credential stored.</em>
@@ -167,20 +154,14 @@ function RepoCard({
 
         {authMethod !== "none" && (
           <label className="backup-field-inline">
-            <input
-              type="checkbox"
-              checked={rotate}
-              onChange={(e) => setRotate(e.target.checked)}
-            />
+            <input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} />
             {repo.has_credential ? "Replace credential" : "Add credential"}
           </label>
         )}
 
         {authMethod !== "none" && rotate && (
           <label className="backup-field">
-            {authMethod === "github_pat"
-              ? "GitHub token"
-              : "SSH private key (PEM)"}
+            {authMethod === "github_pat" ? "GitHub token" : "SSH private key (PEM)"}
             {authMethod === "github_pat" ? (
               <input
                 type="password"
@@ -196,9 +177,7 @@ function RepoCard({
                 placeholder="Paste the SSH private key"
               />
             )}
-            <small className="backup-hint">
-              Stored encrypted at rest; never shown again.
-            </small>
+            <small className="backup-hint">Stored encrypted at rest; never shown again.</small>
           </label>
         )}
 

@@ -209,8 +209,7 @@ export function WikiBrowser() {
         {listError && <p className="wiki-error">{listError}</p>}
         {!listError && docs.length === 0 && (
           <p className="empty-state">
-            Wiki is empty. The agent will create pages here as it resolves
-            failures.
+            Wiki is empty. The agent will create pages here as it resolves failures.
           </p>
         )}
         <ul className="wiki-tree">
@@ -238,10 +237,7 @@ export function WikiBrowser() {
                 </p>
               )}
             </header>
-            <article
-              className="wiki-markdown"
-              dangerouslySetInnerHTML={{ __html: renderedHtml }}
-            />
+            <article className="wiki-markdown" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
           </>
         )}
         {!loadingContent && !content && !contentError && (

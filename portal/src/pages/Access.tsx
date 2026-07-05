@@ -40,9 +40,8 @@ export default function Access() {
     <div className="access-page">
       <h1>Access requests</h1>
       <p className="lead">
-        When the agent needs data from a source it cannot reach, it opens a
-        request here instead of accessing it silently. Approving one grants the
-        repository outbound access.
+        When the agent needs data from a source it cannot reach, it opens a request here instead of
+        accessing it silently. Approving one grants the repository outbound access.
       </p>
       {error && <p className="wiki-error">{error}</p>}
 
@@ -60,10 +59,7 @@ export default function Access() {
               </div>
               {r.reason && <p className="access-reason">{r.reason}</p>}
               <div className="backup-actions">
-                <button
-                  disabled={busy === r.id}
-                  onClick={() => void resolve(r.id, "approved")}
-                >
+                <button disabled={busy === r.id} onClick={() => void resolve(r.id, "approved")}>
                   Approve
                 </button>
                 <button
@@ -97,15 +93,9 @@ export default function Access() {
                   <td>{r.provider}</td>
                   <td>{r.identifier}</td>
                   <td>
-                    <span className={`status-badge ${r.status}`}>
-                      {r.status}
-                    </span>
+                    <span className={`status-badge ${r.status}`}>{r.status}</span>
                   </td>
-                  <td>
-                    {r.resolved_at
-                      ? new Date(r.resolved_at).toLocaleString()
-                      : "—"}
-                  </td>
+                  <td>{r.resolved_at ? new Date(r.resolved_at).toLocaleString() : "—"}</td>
                 </tr>
               ))}
             </tbody>

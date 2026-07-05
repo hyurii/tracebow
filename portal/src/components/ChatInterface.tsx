@@ -24,10 +24,10 @@ export function ChatInterface() {
     setLoading(true);
     try {
       const accepted = await api.chat(userMsg.content);
-      const result = await pollTask<{ response?: string; error?: string }>(
-        accepted.task_id,
-        { intervalMs: 1000, timeoutMs: 120_000 },
-      );
+      const result = await pollTask<{ response?: string; error?: string }>(accepted.task_id, {
+        intervalMs: 1000,
+        timeoutMs: 120_000,
+      });
       setMessages((m) => [
         ...m,
         {
@@ -52,8 +52,7 @@ export function ChatInterface() {
     <div className="chat-section">
       <h2>Agent Chat</h2>
       <p className="chat-desc">
-        Ask the agent to investigate a failure, correlate logs with PRs, or
-        search Jira/Slack.
+        Ask the agent to investigate a failure, correlate logs with PRs, or search Jira/Slack.
       </p>
       <div className="chat-messages">
         {messages.length === 0 && (
@@ -62,10 +61,7 @@ export function ChatInterface() {
             <ul>
               <li>"Why did the last build fail?"</li>
               <li>"Search Jira for database timeout issues"</li>
-              <li>
-                "What changed in the last PR that might have caused the
-                failure?"
-              </li>
+              <li>"What changed in the last PR that might have caused the failure?"</li>
             </ul>
           </div>
         )}
@@ -87,9 +83,7 @@ export function ChatInterface() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) =>
-            e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())
-          }
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
           placeholder="Ask the agent…"
           rows={2}
         />
