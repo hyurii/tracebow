@@ -48,7 +48,7 @@ jobs:
           go build -ldflags "-s -w -X main.Version=${VERSION}" \
             -o "dist/tracebow-cli-${{ matrix.suffix }}" .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tracebow-cli-${{ matrix.suffix }}
           path: tracebow-cli/dist/tracebow-cli-${{ matrix.suffix }}
