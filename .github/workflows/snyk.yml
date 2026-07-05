@@ -32,7 +32,7 @@ jobs:
           args: --file=agent/pyproject.toml --severity-threshold=high --sarif-file-output=snyk-python.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: ${{ !cancelled() && hashFiles('snyk-python.sarif') != '' }}
         with:
           sarif_file: snyk-python.sarif
@@ -53,7 +53,7 @@ jobs:
           args: --file=portal/package.json --severity-threshold=high --sarif-file-output=snyk-node.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: ${{ !cancelled() && hashFiles('snyk-node.sarif') != '' }}
         with:
           sarif_file: snyk-node.sarif
@@ -74,7 +74,7 @@ jobs:
           args: --file=tracebow-cli/go.mod --severity-threshold=high --sarif-file-output=snyk-go.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: ${{ !cancelled() && hashFiles('snyk-go.sarif') != '' }}
         with:
           sarif_file: snyk-go.sarif
@@ -109,7 +109,7 @@ jobs:
           args: --severity-threshold=high --sarif-file-output=snyk-docker-${{ matrix.component }}.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: ${{ !cancelled() && hashFiles(format('snyk-docker-{0}.sarif', matrix.component)) != '' }}
         with:
           sarif_file: snyk-docker-${{ matrix.component }}.sarif
@@ -130,7 +130,7 @@ jobs:
           args: --severity-threshold=high --sarif-file-output=snyk-iac.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: ${{ !cancelled() && hashFiles('snyk-iac.sarif') != '' }}
         with:
           sarif_file: snyk-iac.sarif
