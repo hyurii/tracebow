@@ -1,3 +1,3 @@
 module github.com/tracebow/tracebow-cli
 
-go 1.22
+go 1.25.11

@@ -18,13 +18,852 @@
 
 body {
   margin: 0;
-  font-family: "Outfit", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Outfit",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
   min-height: 100vh;
 }
 
-code, pre {
-  font-family: "JetBrains Mono", monospace;
+code,
+pre {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font: inherit;
+  background: var(--accent);
+  color: #0b0f16;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+button.btn-link {
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+}
+
+textarea {
+  resize: vertical;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+
+.layout {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.layout-header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+
+.logo {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.logo-icon {
+  color: var(--accent);
+}
+
+.tagline {
+  color: var(--text-secondary);
+  margin: 0.25rem 0 1rem;
+}
+
+.nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.nav a {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
+.nav a:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  text-decoration: none;
+}
+
+.nav a.active {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+
+.layout-main {
+  padding-bottom: 4rem;
+}
+
+h1 {
+  font-size: 1.8rem;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.3rem;
+  margin: 1.25rem 0 0.75rem;
+}
+
+.lead {
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+.empty-state {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.wiki-error {
+  color: var(--error);
+}
+
+/* ============================================================
+   Dashboard
+   ============================================================ */
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.card {
+  display: block;
+  padding: 1rem 1.1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+}
+
+.card:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.card h3 {
+  margin: 0 0 0.25rem;
+}
+
+.card p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.dashboard-info {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+/* ============================================================
+   Failures
+   ============================================================ */
+
+.failures-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.failures-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 2fr;
+  gap: 1rem;
+}
+
+@media (max-width: 860px) {
+  .failures-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.failures-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.failure-item {
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: baseline;
+}
+
+.failure-item:last-child {
+  border-bottom: 0;
+}
+
+.failure-item:hover {
+  background: var(--bg-secondary);
+}
+
+.failure-item.selected {
+  background: var(--accent-dim);
+}
+
+.failure-item .source {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.failure-item .job,
+.failure-item .repo {
+  font-weight: 600;
+}
+
+.failure-item .time {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.failure-item .badge {
+  margin-left: auto;
+  padding: 0.15rem 0.55rem;
+  background: var(--success);
+  color: #0b0f16;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.rca-panel {
+  min-height: 60vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+}
+
+.rca-placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.rca-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  color: var(--text-secondary);
+  font-size: 0.9em;
+  margin-bottom: 0.5rem;
+}
+
+.rca-branch-badge {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+}
+
+.rca-branch-badge.wiki_hit {
+  background: var(--success);
+  color: #0b0f16;
+}
+
+.rca-branch-badge.novel_reasoned {
+  background: var(--warning);
+  color: #0b0f16;
+}
+
+.rca-markdown,
+.wiki-markdown {
+  line-height: 1.65;
+}
+
+.rca-markdown pre,
+.wiki-markdown pre {
+  background: var(--bg-tertiary);
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.rca-markdown code,
+.wiki-markdown code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.stacktrace {
+  background: var(--bg-tertiary);
+  padding: 0.75rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+  font-size: 0.85em;
+}
+
+/* ============================================================
+   Chat
+   ============================================================ */
+
+.chat-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.chat-messages {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  min-height: 30vh;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.chat-placeholder {
+  color: var(--text-secondary);
+}
+
+.chat-message {
+  margin-bottom: 0.75rem;
+}
+
+.chat-message .role {
+  display: inline-block;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+}
+
+.chat-message pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-tertiary);
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  margin: 0;
+}
+
+.chat-input {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* ============================================================
+   Wiki
+   ============================================================ */
+
+.wiki-browser {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 860px) {
+  .wiki-browser {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wiki-sidebar {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.wiki-search {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.wiki-sidebar h4 {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0.75rem 0 0.25rem;
+}
+
+.wiki-tree,
+.wiki-search-results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.wiki-tree-folder-name {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 0.2rem 0.1rem;
+}
+
+.wiki-tree-folder-name:hover {
+  color: var(--text-primary);
+}
+
+.wiki-tree-file {
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.wiki-tree-file:hover {
+  background: var(--bg-tertiary);
+}
+
+.wiki-tree-file.active,
+.wiki-search-results li.active {
+  background: var(--accent-dim);
+}
+
+.wiki-search-results li {
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 0.35rem;
+}
+
+.wiki-search-results .hit-title {
+  font-weight: 600;
+}
+
+.wiki-search-results .hit-path {
+  font-size: 0.8em;
+  color: var(--text-secondary);
+}
+
+.wiki-search-results .hit-snippet {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+.wiki-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  min-height: 70vh;
+}
+
+.wiki-content-header h2 {
+  margin: 0 0 0.25rem;
+}
+
+.wiki-content-path {
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  margin: 0;
+}
+
+.wiki-content-meta {
+  color: var(--text-secondary);
+  margin: 0 0 1rem;
+  font-size: 0.85em;
+}
+
+/* ============================================================
+   Settings
+   ============================================================ */
+
+.settings-desc {
+  color: var(--text-secondary);
+  max-width: 70ch;
+}
+
+.settings-section {
+  margin: 2rem 0;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.setting-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+}
+
+.setting-card h3 {
+  margin: 0 0 0.25rem;
+}
+
+.setting-card ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+}
+
+.setting-card li {
+  color: var(--text-secondary);
+}
+
+.backup-form {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.backup-field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.backup-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.backup-hint {
+  color: var(--text-secondary);
+  font-size: 0.8em;
+}
+
+.backup-deploy-key {
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  padding: 0.75rem 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.backup-deploy-key-status code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.backup-last {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.backup-flash {
+  color: var(--success);
+}
+
+/* ============================================================
+   Stacktrace + diff (failure detail)
+   ============================================================ */
+
+.stacktrace-block,
+.diff-block {
+  margin-bottom: 1rem;
+}
+
+.stacktrace-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.stacktrace-meta {
+  color: var(--text-secondary);
+  font-size: 0.8em;
+}
+
+.stacktrace-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.diff-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin-bottom: 0.25rem;
+}
+
+.diff-add {
+  color: var(--success);
+}
+
+.diff-del {
+  color: var(--error);
+}
+
+.diff-patch {
+  background: var(--bg-tertiary);
+  padding: 0.75rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 340px;
+  overflow: auto;
+  font-size: 0.82em;
+}
+
+/* ============================================================
+   Shared: status badges + data tables
+   ============================================================ */
+
+.status-badge {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.status-badge.allowed,
+.status-badge.approved,
+.status-badge.internal {
+  background: var(--success);
+  color: #0b0f16;
+}
+
+.status-badge.denied {
+  background: var(--error);
+  color: #0b0f16;
+}
+
+.status-badge.pending {
+  background: var(--warning);
+  color: #0b0f16;
+}
+
+.status-badge.external {
+  background: var(--warning);
+  color: #0b0f16;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9em;
+}
+
+.data-table th {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-secondary);
+}
+
+.data-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tr.row-blocked {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+/* ============================================================
+   Repositories + access
+   ============================================================ */
+
+.repo-list,
+.access-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.repo-card,
+.access-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.repo-card-head,
+.access-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.repo-id,
+.access-card-head .repo-id {
+  font-weight: 600;
+}
+
+.repo-card-head .source,
+.access-card-head .source {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.repo-card-head .status-badge {
+  margin-left: auto;
+}
+
+.access-by {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.access-reason {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.repo-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.repo-creds {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.repo-cred-status code {
+  background: var(--bg-tertiary);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* ============================================================
+   Security
+   ============================================================ */
+
+.posture-banner {
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0;
+  border: 1px solid var(--border);
+}
+
+.posture-banner.ok {
+  background: rgba(63, 185, 80, 0.12);
+  border-color: var(--success);
+}
+
+.posture-banner.warn {
+  background: rgba(210, 153, 34, 0.12);
+  border-color: var(--warning);
+}
+
+.stat-card h3 {
+  font-size: 1.8rem;
+}
+
+.stat-card.warn h3 {
+  color: var(--warning);
+}
+
+.stat-card.error h3 {
+  color: var(--error);
+}
+
+.egress-filters {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin: 0.5rem 0 1rem;
+  flex-wrap: wrap;
 }

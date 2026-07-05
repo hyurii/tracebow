@@ -5,29 +5,43 @@ export default function Dashboard() {
     <div className="dashboard-page">
       <h1>Welcome to Tracebow</h1>
       <p className="lead">
-        Local, agent-driven root cause analysis for Jenkins, GitHub Actions, Jira, and Slack.
-        Zero egress—your data stays within your infrastructure.
+        Local, agent-driven root cause analysis for Jenkins, GitHub Actions, Jira, and Slack. Zero
+        egress — your data stays within your infrastructure.
       </p>
       <div className="dashboard-cards">
         <Link to="/failures" className="card">
           <h3>Pipeline Failures</h3>
-          <p>View recent failures and RCA results</p>
+          <p>Recent failures, stack traces, and RCA summaries</p>
         </Link>
         <Link to="/chat" className="card">
           <h3>Agent Chat</h3>
           <p>Ask the AI agent to investigate, correlate, or search</p>
         </Link>
+        <Link to="/wiki" className="card">
+          <h3>Wiki</h3>
+          <p>Browse the Git-backed knowledge base of resolutions & policies</p>
+        </Link>
         <Link to="/settings" className="card">
           <h3>Settings</h3>
-          <p>Configure integrations and API tokens</p>
+          <p>Configure integrations, tokens, and wiki backup</p>
         </Link>
       </div>
       <div className="dashboard-info">
-        <h3>Quick Start</h3>
+        <h3>How it works</h3>
         <ul>
-          <li>Configure Jenkins/GitHub webhooks to POST failures to <code>/api/v1/webhooks/jenkins</code> or <code>/api/v1/webhooks/github</code></li>
-          <li>Run ingestion to populate the vector and graph databases</li>
-          <li>Use the chat interface to query across logs, Jira, and Slack</li>
+          <li>
+            The Go CLI agent watches CI/CD jobs and POSTs failures to <code>/api/v1/analyze</code>.
+            Jenkins & GitHub webhooks are also accepted at <code>/api/v1/webhooks/jenkins</code> and{" "}
+            <code>/api/v1/webhooks/github</code>.
+          </li>
+          <li>
+            A LangGraph orchestrator running on local Ollama models searches the wiki first, reasons
+            over the stack trace, then writes back the resolution as a versioned Markdown file.
+          </li>
+          <li>
+            Failures and RCA summaries are stored in Postgres. Long-term knowledge lives in the
+            Git-backed wiki and can optionally be pushed to your own remote for backup.
+          </li>
         </ul>
       </div>
     </div>

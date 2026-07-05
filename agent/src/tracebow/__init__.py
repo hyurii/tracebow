@@ -2,5 +2,5 @@
 
 from tracebow.agent import RCAAgent, run_rca_agent
 
-__all__ = ["RCAAgent", "run_rca_agent", "__version__"]
+__all__ = ["RCAAgent", "__version__", "run_rca_agent"]
 __version__ = "0.1.0"

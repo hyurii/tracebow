@@ -1,0 +1,167 @@
+# Tracebow — DEVELOPMENT compose file.
+#
+# Builds images from local source code, exposes all debug ports.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d --build
+#
+# Rebuild after agent changes:
+#   docker compose -f docker-compose.dev.yml up -d --build agent celery-worker celery-beat
+
+x-tracebow-agent-environment: &tracebow-agent-environment
+  OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+  OLLAMA_MODEL_RCA: ${OLLAMA_MODEL_RCA:-phi4-mini}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracebow}:${POSTGRES_PASSWORD:-tracebow}@postgres:5432/${POSTGRES_DB:-tracebow}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
+  CELERY_RCA_RATE_LIMIT: ${CELERY_RCA_RATE_LIMIT:-10/m}
+  WIKI_PATH: /wiki
+  WIKI_DEFAULT_BRANCH: ${WIKI_DEFAULT_BRANCH:-main}
+  WIKI_SECRET_KEY: ${WIKI_SECRET_KEY:-tracebow-dev-unsafe-key-please-override}
+  JENKINS_URL: ${JENKINS_URL:-}
+  JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+  JENKINS_USER: ${JENKINS_USER:-}
+  GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+  JIRA_URL: ${JIRA_URL:-}
+  JIRA_EMAIL: ${JIRA_EMAIL:-}
+  JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+  API_HOST: ${API_HOST:-0.0.0.0}
+  API_PORT: ${API_PORT:-8080}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracebow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracebow}
+      POSTGRES_DB: ${POSTGRES_DB:-tracebow}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracebow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for i in $$(seq 1 60); do
+          if ollama list >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+        ollama pull phi4-mini
+        ollama pull llama3.2:3b
+    restart: "no"
+
+  migrate:
+    build: ./agent
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    environment:
+      <<: *tracebow-agent-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  agent:
+    build: ./agent
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_started
+
+  celery-worker:
+    build: ./agent
+    command: >
+      celery -A tracebow.celery_app worker
+      --loglevel=info
+      --queues=rca,default,maintenance
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+      --max-tasks-per-child=200
+      --without-heartbeat
+    environment:
+      <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_started
+
+  celery-beat:
+    build: ./agent
+    command: >
+      celery -A tracebow.celery_app beat
+      --loglevel=info
+    environment:
+      <<: *tracebow-agent-environment
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  portal:
+    build: ./portal
+    ports:
+      - "${PORTAL_PORT:-3000}:80"
+    depends_on:
+      - agent
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  tracebow_wiki:

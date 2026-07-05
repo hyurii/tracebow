@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { api, pollTask } from "../api";
 
 interface Message {
   role: "user" | "assistant";
@@ -22,21 +23,25 @@ export function ChatInterface() {
     setInput("");
     setLoading(true);
     try {
-      const r = await fetch("/api/v1/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg.content }),
+      const accepted = await api.chat(userMsg.content);
+      const result = await pollTask<{ response?: string; error?: string }>(accepted.task_id, {
+        intervalMs: 1000,
+        timeoutMs: 120_000,
       });
-      const d = await r.json();
-      const assistantMsg: Message = {
-        role: "assistant",
-        content: d.response ?? d.error ?? "No response.",
-      };
-      setMessages((m) => [...m, assistantMsg]);
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: result.response ?? result.error ?? "No response.",
+        },
+      ]);
     } catch (e) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: `Error: ${String(e)}` },
+        {
+          role: "assistant",
+          content: `Error: ${String((e as Error).message ?? e)}`,
+        },
       ]);
     } finally {
       setLoading(false);

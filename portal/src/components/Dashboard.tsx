@@ -56,13 +56,13 @@ export function Dashboard() {
   );
 }
 
-
 function SettingsPanel() {
   return (
     <div className="settings-panel">
       <h2>Configuration</h2>
       <p className="settings-desc">
-        Configure API tokens and ingestion parameters for connected tools. All data stays local—zero egress.
+        Configure API tokens and ingestion parameters for connected tools. All data stays local—zero
+        egress.
       </p>
       <div className="settings-grid">
         <SettingCard
@@ -108,7 +108,9 @@ function SettingCard({
       <p>{description}</p>
       <ul>
         {envVars.map((v) => (
-          <li key={v}><code>{v}</code></li>
+          <li key={v}>
+            <code>{v}</code>
+          </li>
         ))}
       </ul>
     </div>

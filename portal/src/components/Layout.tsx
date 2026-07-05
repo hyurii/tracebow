@@ -7,6 +7,10 @@ export default function Layout() {
     { path: "/", label: "Dashboard" },
     { path: "/chat", label: "Agent Chat" },
     { path: "/failures", label: "Failures" },
+    { path: "/wiki", label: "Wiki" },
+    { path: "/repositories", label: "Repositories" },
+    { path: "/access", label: "Access" },
+    { path: "/security", label: "Security" },
     { path: "/settings", label: "Settings" },
   ];
 
@@ -19,11 +23,7 @@ export default function Layout() {
         <p className="tagline">Local AI Root Cause Analysis for CI/CD</p>
         <nav className="nav">
           {nav.map(({ path, label }) => (
-            <Link
-              key={path}
-              to={path}
-              className={location.pathname === path ? "active" : ""}
-            >
+            <Link key={path} to={path} className={location.pathname === path ? "active" : ""}>
               {label}
             </Link>
           ))}

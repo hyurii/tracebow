@@ -1,32 +1,114 @@
-# Tracebow — fully portable, zero-egress AI stack.
-# One docker-compose.yml runs everywhere: Mac laptops, Windows + Docker Desktop,
-# cheap standard EC2 (t3, m5, c6i — Intel/AMD x86). No ARM/Graviton required.
+# Tracebow — customer / open-source deployment.
 #
-# Ollama auto-detects hardware at runtime:
-#   macOS Apple Silicon  → Metal GPU acceleration (M1–M4, unified memory)
-#   Windows + NVIDIA GPU → CUDA acceleration (RTX, etc.)
-#   Windows / Linux CPU  → AVX2 fallback (plenty fast for quantized 3B models)
-#   Linux + NVIDIA GPU   → overlay docker-compose.gpu.yml (see below)
+# Fully local, zero-egress stack.
 #
-# Runtime:
-#   CPU (default):  docker compose up -d
-#   NVIDIA GPU:     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
-#                   (or COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml in .env)
+# Minimum hardware: 4 GB RAM (t3.medium or equivalent).
+# Recommended: 8 GB RAM when Ollama is enabled.
+#
+# Quick start (build from source — works from a fresh clone, no registry auth):
+#   docker compose up -d --build
+#
+# Or, once the public images are published to ghcr.io, pull them instead:
+#   docker compose up -d
+#
+# Images default to ghcr.io/<repo-owner> (where publish.yml pushes them).
+# Point at a different registry namespace with TRACEBOW_REGISTRY in .env.
 #
 # Models pulled once on startup via ollama-pull (idempotent):
 #   phi4-mini        — deep coding, stack traces, pipeline RCA
-#   llama3.2:3b      — fast chat, Jira/Slack RAG summarization
-#   nomic-embed-text — embeddings (RAG)
+#   llama3.2:3b      — fast chat / novel-error triage
+#
+# Persistent state:
+#   - postgres_data    → telemetry (failures, RCAs, backup config)
+#   - tracebow_wiki    → Git-backed Markdown knowledge base (/wiki)
+#   - ollama_data      → local model weights
+#   - redis_data       → task queue + result cache
 
-name: tracebow
+x-tracebow-agent-environment: &tracebow-agent-environment
+  OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+  OLLAMA_MODEL_RCA: ${OLLAMA_MODEL_RCA:-phi4-mini}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracebow}:${POSTGRES_PASSWORD:-tracebow}@postgres:5432/${POSTGRES_DB:-tracebow}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+  CELERY_RCA_RATE_LIMIT: ${CELERY_RCA_RATE_LIMIT:-10/m}
+  WIKI_PATH: /wiki
+  WIKI_DEFAULT_BRANCH: ${WIKI_DEFAULT_BRANCH:-main}
+  WIKI_SECRET_KEY: ${WIKI_SECRET_KEY:-tracebow-dev-unsafe-key-please-override}
+  JENKINS_URL: ${JENKINS_URL:-}
+  JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+  JENKINS_USER: ${JENKINS_USER:-}
+  GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+  GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+  JIRA_URL: ${JIRA_URL:-}
+  JIRA_EMAIL: ${JIRA_EMAIL:-}
+  JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+  SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+  SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+
+x-tracebow-image: &tracebow-image
+  # Uses the published image when present/pulled; builds from local source with
+  # `docker compose up -d --build`. The default namespace matches where CI
+  # publishes (ghcr.io/<repo-owner>, see .github/workflows/publish.yml). Override
+  # with TRACEBOW_REGISTRY (e.g. ghcr.io/your-org) if you publish elsewhere.
+  image: ${TRACEBOW_REGISTRY:-ghcr.io/hyurii}/agent:${TRACEBOW_VERSION:-latest}
+  build: ./agent
+
+x-portal-image: &portal-image
+  image: ${TRACEBOW_REGISTRY:-ghcr.io/hyurii}/portal:${TRACEBOW_VERSION:-latest}
+  build: ./portal
 
 services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracebow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracebow}
+      POSTGRES_DB: ${POSTGRES_DB:-tracebow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracebow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # AI runtime
+  # ---------------------------------------------------------------------------
+
   ollama:
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+    deploy:
+      resources:
+        limits:
+          memory: 6G
 
   ollama-pull:
     image: ollama/ollama:latest
@@ -45,54 +127,107 @@ services:
         done
         ollama pull phi4-mini
         ollama pull llama3.2:3b
-        ollama pull nomic-embed-text
     restart: "no"
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    volumes:
-      - qdrant_data:/qdrant/storage
-    ports:
-      - "${QDRANT_PORT:-6333}:6333"
+  # ---------------------------------------------------------------------------
+  # Database migrations — runs once, then exits 0.
+  # ---------------------------------------------------------------------------
 
-  neo4j:
-    image: neo4j:5-community
+  migrate:
+    <<: *tracebow-image
+    command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
-    volumes:
-      - neo4j_data:/data
-    ports:
-      - "${NEO4J_HTTP_PORT:-7474}:7474"
-      - "${NEO4J_BOLT_PORT:-7687}:7687"
+      <<: *tracebow-agent-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
 
   agent:
-    build: ./agent
+    <<: *tracebow-image
     ports:
       - "${API_PORT:-8080}:8080"
-    env_file:
-      - .env
     environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      QDRANT_HOST: qdrant
-      NEO4J_URI: bolt://neo4j:7687
+      <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       ollama:
         condition: service_started
       ollama-pull:
         condition: service_completed_successfully
-      qdrant:
-        condition: service_started
-      neo4j:
+
+  celery-worker:
+    <<: *tracebow-image
+    command: >
+      celery -A tracebow.celery_app worker
+      --loglevel=info
+      --queues=rca,default,maintenance
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+      --max-tasks-per-child=200
+      --without-heartbeat
+    environment:
+      <<: *tracebow-agent-environment
+    volumes:
+      - tracebow_wiki:/wiki
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      ollama:
         condition: service_started
 
+  celery-beat:
+    <<: *tracebow-image
+    command: >
+      celery -A tracebow.celery_app beat
+      --loglevel=info
+    environment:
+      <<: *tracebow-agent-environment
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   portal:
-    build: ./portal
+    <<: *portal-image
     ports:
       - "${PORTAL_PORT:-3000}:80"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     depends_on:
       - agent
 
 volumes:
+  postgres_data:
+  redis_data:
   ollama_data:
-  qdrant_data:
-  neo4j_data:
+  tracebow_wiki:

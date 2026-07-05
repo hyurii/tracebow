@@ -1,167 +1,523 @@
-"""Agentic orchestration engine implementing Context–Planning–Action (C-P-A) loop."""
+"""
+LangGraph-based SRE orchestrator.
+
+Graph shape::
+
+    ingest ─► search_wiki ─► (wiki_hit?)
+                               ├── yes ─► read_wiki ─► finalize (branch=wiki_hit)
+                               └── no  ─► reason ─► write_wiki ─► finalize (branch=novel_reasoned)
+
+The ``reason`` node runs a real, tool-calling ``ChatOllama`` (bound to
+:mod:`tracebow.tools.ALL_TOOLS`) when ``OLLAMA_ENABLED=true``. If Ollama
+is disabled or any part of the LLM/tool loop fails, it degrades to a
+deterministic templated summary (:func:`_stub_reason`) so RCA never
+crashes. The graph shape is identical in both modes.
+
+State is a plain ``TypedDict`` so it can round-trip through Celery's
+JSON serializer — we never put live Python objects in there.
+"""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, TypedDict
+
+from langgraph.graph import END, StateGraph
 
 from tracebow.config import get_settings
-from tracebow.services.retrieval import RetrievalService
-from tracebow.services.graph import GraphService
+from tracebow.services.wiki import WikiError, WikiService
 
 logger = logging.getLogger(__name__)
 
+MAX_STACKTRACE_LINES = 50
+TOP_K_WIKI = 5
+WIKI_HIT_THRESHOLD = 2.0
 
-class RCAAgent:
+
+class GraphState(TypedDict, total=False):
+    event_type: str
+    payload: dict[str, Any]
+    query: str
+    stacktrace: str
+    wiki_hits: list[dict[str, Any]]
+    wiki_doc: dict[str, Any] | None
+    branch_taken: str
+    summary: str
+    wiki_doc_created: bool
+    wiki_doc_path: str | None
+    model_used: str
+    tool_trace: list[dict[str, Any]]
+    latency_ms: int
+    started_at: float
+
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+
+
+def _node_ingest(state: GraphState) -> GraphState:
+    payload = state.get("payload", {}) or {}
+    event_type = state.get("event_type", "unknown")
+    stacktrace = _snip_stacktrace(payload)
+    query = _build_query(event_type, payload, stacktrace)
+
+    return {
+        **state,
+        "query": query,
+        "stacktrace": stacktrace,
+        "tool_trace": [{"node": "ingest", "event_type": event_type}],
+        "started_at": time.monotonic(),
+    }
+
+
+def _node_search_wiki(state: GraphState) -> GraphState:
+    query = state.get("query", "")
+    try:
+        hits = WikiService().search(query, limit=TOP_K_WIKI)
+    except WikiError as exc:
+        logger.warning("Wiki search failed: %s", exc)
+        hits = []
+
+    serialized = [
+        {"path": h.path, "title": h.title, "excerpt": h.excerpt, "score": h.score} for h in hits
+    ]
+    trace = list(state.get("tool_trace", []))
+    trace.append({"node": "search_wiki", "hit_count": len(serialized)})
+    return {**state, "wiki_hits": serialized, "tool_trace": trace}
+
+
+def _node_read_wiki(state: GraphState) -> GraphState:
+    hits = state.get("wiki_hits") or []
+    if not hits:
+        return {**state, "wiki_doc": None}
+
+    top = hits[0]
+    try:
+        doc = WikiService().read(top["path"])
+    except WikiError as exc:
+        logger.warning("Wiki read failed for %s: %s", top.get("path"), exc)
+        return {**state, "wiki_doc": None}
+
+    trace = list(state.get("tool_trace", []))
+    trace.append({"node": "read_wiki", "path": doc.path})
+    return {
+        **state,
+        "wiki_doc": {"path": doc.path, "title": doc.title, "content": doc.content},
+        "tool_trace": trace,
+    }
+
+
+def _stub_reason(state: GraphState, *, model_used: str = "stub:deterministic") -> GraphState:
+    """Deterministic templated fallback for the reason node.
+
+    Emits a first-pass recommendation from whatever structured context we
+    already have. Honest about being a stub so the UI shows the right
+    caveat and we don't pretend we called an LLM. Used both when Ollama is
+    disabled and as the never-crash fallback if a real LLM call fails.
     """
-    Autonomous agent for root cause analysis.
-    Operates on C-P-A: Context (ingest, retrieve), Planning (hypothesis), Action (synthesize).
+    event_type = state.get("event_type", "unknown")
+    stacktrace = state.get("stacktrace", "")
+    payload = state.get("payload", {}) or {}
+
+    header_lines = [
+        f"Tracebow novel-error triage for {event_type} event.",
+        "No matching runbook found in the wiki — generating a first-pass template.",
+    ]
+    if payload.get("repo") or payload.get("repository"):
+        header_lines.append(f"Repository: {payload.get('repo') or payload.get('repository')}")
+    if payload.get("job_name"):
+        header_lines.append(f"Job: {payload['job_name']}")
+    commit = payload.get("commit_sha") or payload.get("git_commit") or payload.get("head_sha")
+    if commit:
+        header_lines.append(f"Commit: {commit}")
+
+    hint = _first_failure_line(stacktrace)
+    if hint:
+        header_lines.append(f"First failure signal: {hint}")
+
+    body = "\n".join(
+        [
+            *header_lines,
+            "",
+            "Likely next steps:",
+            "- Inspect the failing step's last 50 lines of output (captured below).",
+            "- Compare recent commits / PR diffs using the `get_github_pr_files` tool.",
+            "- Query Jira for open incidents referencing the same signature.",
+            "- If a fix is confirmed, update the generated runbook in the wiki.",
+        ]
+    )
+
+    settings = get_settings()
+    mode = "stub_template" if not settings.ollama_enabled else "stub_template_ollama_skipped"
+    trace = list(state.get("tool_trace", []))
+    trace.append({"node": "reason", "mode": mode})
+    return {
+        **state,
+        "summary": body,
+        "model_used": model_used,
+        "tool_trace": trace,
+    }
+
+
+_REASON_SYSTEM_PROMPT = (
+    "You are Tracebow, a senior SRE agent performing root-cause analysis on a "
+    "CI/CD failure. You operate in a zero-egress environment: your only sources "
+    "of information are the provided tools (Jenkins, GitHub, Jira, Slack, and the "
+    "company wiki). Use the tools to gather concrete evidence — recent commits, "
+    "console logs, related incidents — before concluding. Do not guess when a "
+    "tool can confirm. When you are confident, stop calling tools and reply with "
+    "a concise root-cause analysis followed by a concrete, actionable fix. Keep "
+    "the final answer focused and free of tool-call chatter."
+)
+
+
+def _reason_human_prompt(state: GraphState) -> str:
+    event_type = state.get("event_type", "unknown")
+    stacktrace = state.get("stacktrace", "")
+    payload = state.get("payload", {}) or {}
+
+    lines = [f"Event type: {event_type}"]
+    repo = payload.get("repo") or payload.get("repository")
+    if repo:
+        lines.append(f"Repository: {repo}")
+    if payload.get("job_name"):
+        lines.append(f"Job: {payload['job_name']}")
+    commit = payload.get("commit_sha") or payload.get("git_commit") or payload.get("head_sha")
+    if commit:
+        lines.append(f"Commit: {commit}")
+
+    hint = _first_failure_line(stacktrace)
+    if hint:
+        lines.append(f"First failure signal: {hint}")
+
+    near_misses = state.get("wiki_hits") or []
+    if near_misses:
+        lines.append("")
+        lines.append("Sub-threshold wiki near-misses (may or may not be relevant):")
+        for hit in near_misses:
+            lines.append(f"- {hit.get('path')} (score={hit.get('score')}): {hit.get('title')}")
+
+    lines.append("")
+    lines.append("Stacktrace (last 50 lines):")
+    lines.append("```")
+    lines.append(stacktrace or "(no stacktrace captured)")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _node_reason(state: GraphState) -> GraphState:
+    """Agentic RCA step.
+
+    Runs a bounded ReAct loop over a tool-bound ``ChatOllama``: the model
+    reasons over the failure, optionally calls the native tools to gather
+    evidence, and returns a root cause + fix. Falls back to the
+    deterministic stub whenever Ollama is disabled or anything goes wrong —
+    RCA must never crash the graph.
     """
+    settings = get_settings()
+    if not settings.ollama_enabled:
+        return _stub_reason(state)
 
-    def __init__(
-        self,
-        retrieval: RetrievalService | None = None,
-        graph: GraphService | None = None,
-    ) -> None:
-        self.retrieval = retrieval or RetrievalService()
-        self.graph = graph or GraphService()
-
-    async def analyze(
-        self,
-        event_type: str,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        """
-        Run the agentic RCA loop for a pipeline failure event.
-        """
-        context = self._build_context(event_type, payload)
-        logger.info("RCA context assembled for %s", event_type)
-
-        # Retrieve relevant artifacts via hybrid RAG + graph
-        retrieved = await self._retrieve_context(context)
-        logger.info("Retrieved %d chunks, %d graph nodes", len(retrieved.get("chunks", [])), len(retrieved.get("graph_nodes", [])))
-
-        settings = get_settings()
-        llm_model = (
-            settings.ollama_model_rca
-            if event_type in ("jenkins", "github")
-            else settings.ollama_model
+    try:
+        from langchain_core.messages import (
+            AIMessage,
+            HumanMessage,
+            SystemMessage,
+            ToolMessage,
         )
-        # Plan and synthesize RCA (in production: delegate to local LLM)
-        rca = await self._synthesize_rca(context, retrieved, llm_model=llm_model)
-        return rca
 
-    def _build_context(self, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Build initial context from webhook payload."""
-        ctx: dict[str, Any] = {"event_type": event_type, "payload": payload}
+        from tracebow.llm import build_reasoning_llm, invoke_tool
 
-        if event_type == "jenkins":
-            ctx["job_name"] = payload.get("job_name")
-            ctx["build_number"] = payload.get("build_number")
-            ctx["commit"] = payload.get("git_commit")
-            ctx["console_url"] = payload.get("console_url")
+        llm = build_reasoning_llm()
+        messages: list[Any] = [
+            SystemMessage(content=_REASON_SYSTEM_PROMPT),
+            HumanMessage(content=_reason_human_prompt(state)),
+        ]
+        trace = list(state.get("tool_trace", []))
 
-        elif event_type == "github":
-            repo = payload.get("repository")
-            ctx["repo"] = repo if isinstance(repo, str) else (repo.get("full_name") if isinstance(repo, dict) else None)
-            ctx["run_id"] = payload.get("run_id")
-            ctx["workflow"] = payload.get("workflow_name") or payload.get("workflow")
-            ctx["commit"] = payload.get("head_sha")
-            ctx["pr_number"] = payload.get("pull_request_number") or (payload.get("pull_request", {}).get("number") if isinstance(payload.get("pull_request"), dict) else None)
+        final: AIMessage | None = None
+        for _ in range(max(1, settings.reason_max_tool_iterations)):
+            response = llm.invoke(messages)
+            messages.append(response)
+            final = response
 
-        elif event_type in ("chat", "generic"):
-            ctx["query"] = payload.get("query", "")
+            tool_calls = getattr(response, "tool_calls", None) or []
+            if not tool_calls:
+                break
 
-        return ctx
-
-    async def _retrieve_context(self, context: dict[str, Any]) -> dict[str, Any]:
-        """Hybrid retrieval: vector + BM25 + graph traversal."""
-        query_parts = []
-        if context.get("job_name"):
-            query_parts.append(f"Jenkins job {context['job_name']}")
-        if context.get("commit"):
-            query_parts.append(f"commit {context['commit'][:8]}")
-        if context.get("repo"):
-            query_parts.append(f"repository {context['repo']}")
-
-        query = " ".join(query_parts) if query_parts else context.get("query", "pipeline failure build log")
-
-        chunks = await self.retrieval.hybrid_search(query, top_k=10)
-        graph_nodes: list[dict] = []
-
-        if context.get("repo") or context.get("commit"):
-            try:
-                result = await self.graph.get_blast_radius(
-                    repo=context.get("repo") or "",
-                    commit=context.get("commit", "")[:8],
+            for call in tool_calls:
+                name = call.get("name", "")
+                args = call.get("args", {}) or {}
+                result = invoke_tool(name, args)
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(result, default=str),
+                        tool_call_id=call.get("id", ""),
+                    )
                 )
-                affected = result.get("affected", []) if isinstance(result, dict) else []
-                graph_nodes = [{"id": f"{r.get('type','')}:{r.get('name','')}:{r.get('repo','')}", **r} for r in affected]
-            except Exception as e:
-                logger.warning("Graph blast radius lookup failed: %s", e)
-                graph_nodes = []
+                trace.append({"node": "reason", "tool": name, "status": result.get("status", "ok")})
 
-        return {"chunks": chunks, "graph_nodes": graph_nodes}
-
-    async def _synthesize_rca(
-        self,
-        context: dict[str, Any],
-        retrieved: dict[str, Any],
-        llm_model: str,
-    ) -> dict[str, Any]:
-        """Synthesize final RCA report (placeholder; in production, call local LLM)."""
-        chunks = retrieved.get("chunks", [])
-        graph_nodes = retrieved.get("graph_nodes", [])
-
-        # In production: ChatOllama(model=llm_model, base_url=...) with this prompt
-        logger.info("RCA synthesis will use Ollama model %s", llm_model)
-        # For now: structured placeholder
-        summary = (
-            f"RCA triggered for {context.get('event_type', 'unknown')} event "
-            f"(model={llm_model}). "
-            f"Retrieved {len(chunks)} relevant chunks and {len(graph_nodes)} related graph nodes."
-        )
+        summary = _message_text(final)
+        if not summary.strip():
+            raise ValueError("empty LLM response")
 
         return {
-            "status": "completed",
-            "event_type": context.get("event_type"),
+            **state,
             "summary": summary,
-            "retrieved_chunk_count": len(chunks),
-            "blast_radius_components": [n.get("id") for n in graph_nodes[:10]],
-            "recommendations": [
-                "Review retrieved log chunks for error signatures.",
-                "Check blast radius for upstream/downstream impacts.",
-            ],
+            "model_used": f"ollama:{settings.ollama_model_rca}",
+            "tool_trace": trace,
         }
+    except Exception as exc:  # RCA must degrade, never crash
+        logger.warning("LLM reasoning failed, falling back to stub: %s", exc)
+        return _stub_reason(state, model_used="stub:ollama_error")
+
+
+def _message_text(message: Any) -> str:
+    if message is None:
+        return ""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for chunk in content:
+            if isinstance(chunk, str):
+                parts.append(chunk)
+            elif isinstance(chunk, dict) and "text" in chunk:
+                parts.append(str(chunk["text"]))
+        return "".join(parts)
+    return str(content)
+
+
+def _node_write_wiki(state: GraphState) -> GraphState:
+    query = (state.get("query") or "tracebow-unknown").strip()
+    slug = _slugify(query) or "novel-failure"
+    path = f"runbooks/{slug}.md"
+
+    content = _templated_runbook(
+        slug=slug,
+        event_type=state.get("event_type", "unknown"),
+        summary=state.get("summary", ""),
+        stacktrace=state.get("stacktrace", ""),
+    )
+    trace = list(state.get("tool_trace", []))
+    try:
+        result = WikiService().write(path, content, message=f"Auto-generate runbook {slug}")
+        trace.append(
+            {
+                "node": "write_wiki",
+                "path": result.path,
+                "created": result.created,
+                "commit": result.commit_sha,
+            }
+        )
+        return {
+            **state,
+            "wiki_doc_created": bool(result.commit_sha),
+            "wiki_doc_path": result.path,
+            "tool_trace": trace,
+        }
+    except WikiError as exc:
+        trace.append({"node": "write_wiki", "error": str(exc)})
+        logger.warning("Write to wiki failed: %s", exc)
+        return {**state, "wiki_doc_created": False, "wiki_doc_path": None, "tool_trace": trace}
+
+
+def _finalize_wiki_hit(state: GraphState) -> GraphState:
+    doc = state.get("wiki_doc")
+    summary = (
+        f"Known issue resolved from wiki runbook.\n\n"
+        f"Source: {doc['path']}\n\n"
+        f"Title: {doc['title']}\n\n"
+        f"{doc['content']}"
+        if doc
+        else "Matched the wiki but runbook could not be read — see tool_trace."
+    )
+    return {
+        **state,
+        "branch_taken": "wiki_hit",
+        "summary": summary,
+        "wiki_doc_path": (doc or {}).get("path"),
+        "latency_ms": int((time.monotonic() - state.get("started_at", time.monotonic())) * 1000),
+    }
+
+
+def _finalize_novel(state: GraphState) -> GraphState:
+    return {
+        **state,
+        "branch_taken": "novel_reasoned",
+        "latency_ms": int((time.monotonic() - state.get("started_at", time.monotonic())) * 1000),
+    }
+
+
+def _should_use_wiki(state: GraphState) -> str:
+    hits = state.get("wiki_hits") or []
+    if not hits:
+        return "novel"
+    top = hits[0]
+    if float(top.get("score", 0)) >= WIKI_HIT_THRESHOLD:
+        return "known"
+    return "novel"
+
+
+# ---------------------------------------------------------------------------
+# Graph factory
+# ---------------------------------------------------------------------------
+
+
+def build_graph() -> Any:
+    graph = StateGraph(GraphState)
+    graph.add_node("ingest", _node_ingest)
+    graph.add_node("search_wiki", _node_search_wiki)
+    graph.add_node("read_wiki", _node_read_wiki)
+    graph.add_node("reason", _node_reason)
+    graph.add_node("write_wiki", _node_write_wiki)
+    graph.add_node("finalize_wiki_hit", _finalize_wiki_hit)
+    graph.add_node("finalize_novel", _finalize_novel)
+
+    graph.set_entry_point("ingest")
+    graph.add_edge("ingest", "search_wiki")
+    graph.add_conditional_edges(
+        "search_wiki",
+        _should_use_wiki,
+        {"known": "read_wiki", "novel": "reason"},
+    )
+    graph.add_edge("read_wiki", "finalize_wiki_hit")
+    graph.add_edge("reason", "write_wiki")
+    graph.add_edge("write_wiki", "finalize_novel")
+    graph.add_edge("finalize_wiki_hit", END)
+    graph.add_edge("finalize_novel", END)
+
+    return graph.compile()
+
+
+_COMPILED = None
+
+
+def _graph() -> Any:
+    global _COMPILED
+    if _COMPILED is None:
+        _COMPILED = build_graph()
+    return _COMPILED
+
+
+# ---------------------------------------------------------------------------
+# Public entrypoints
+# ---------------------------------------------------------------------------
+
+
+class RCAAgent:
+    """Public wrapper preserved for the task layer and tests."""
+
+    async def analyze(self, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        compiled = _graph()
+        initial: GraphState = {"event_type": event_type, "payload": payload or {}}
+        result: GraphState = await compiled.ainvoke(initial)
+        return _to_public(result)
 
 
 async def run_rca_agent(query: str, context: dict[str, Any] | None = None) -> str:
-    """
-    Entry point for chat and on-demand RCA.
-    Runs the agent and returns a human-readable summary string.
-    """
-    agent = RCAAgent()
-    ctx = context or {}
-    source = ctx.get("source")
-    if source == "jenkins":
-        payload = {
-            "job_name": ctx.get("job_or_repo"),
-            "build_number": ctx.get("build_or_run_id"),
-            "git_commit": ctx.get("git_commit"),
-            **{k: v for k, v in ctx.items() if k not in ("source", "job_or_repo", "build_or_run_id")},
-        }
-        event_type = "jenkins"
-    elif source == "github":
-        payload = {
-            "repository": ctx.get("job_or_repo"),
-            "run_id": ctx.get("build_or_run_id"),
-            "head_sha": ctx.get("head_sha"),
-            "pull_request_number": ctx.get("pr_number"),
-            **{k: v for k, v in ctx.items() if k not in ("source", "job_or_repo", "build_or_run_id")},
-        }
-        event_type = "github"
-    else:
-        payload = {"query": query, **ctx}
-        event_type = "chat"
-    result = await agent.analyze(event_type, payload)
-    return result.get("summary", str(result))
+    payload = {"query": query, **(context or {})}
+    event_type = (context or {}).get("source") or "chat"
+    result = await RCAAgent().analyze(event_type, payload)
+    return str(result.get("summary", ""))
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _to_public(state: GraphState) -> dict[str, Any]:
+    return {
+        "status": "completed",
+        "event_type": state.get("event_type"),
+        "summary": state.get("summary", ""),
+        "branch_taken": state.get("branch_taken", "novel_reasoned"),
+        "wiki_doc_path": state.get("wiki_doc_path"),
+        "wiki_doc_created": bool(state.get("wiki_doc_created", False)),
+        "tool_trace": state.get("tool_trace", []),
+        "model_used": state.get("model_used", "stub:deterministic"),
+        "latency_ms": state.get("latency_ms"),
+    }
+
+
+def _snip_stacktrace(payload: dict[str, Any]) -> str:
+    raw = (
+        payload.get("log_content")
+        or payload.get("console_output")
+        or payload.get("log")
+        or payload.get("stacktrace")
+        or ""
+    )
+    if not isinstance(raw, str) or not raw:
+        return ""
+    lines = raw.splitlines()
+    if len(lines) <= MAX_STACKTRACE_LINES:
+        return "\n".join(lines)
+    return "\n".join(lines[-MAX_STACKTRACE_LINES:])
+
+
+def _build_query(event_type: str, payload: dict[str, Any], stacktrace: str) -> str:
+    parts: list[str] = []
+    if payload.get("job_name"):
+        parts.append(f"job {payload['job_name']}")
+    if payload.get("repository"):
+        parts.append(f"repo {payload['repository']}")
+    if payload.get("repo"):
+        parts.append(f"repo {payload['repo']}")
+    if payload.get("workflow_name"):
+        parts.append(f"workflow {payload['workflow_name']}")
+    if payload.get("query"):
+        parts.append(str(payload["query"]))
+    first = _first_failure_line(stacktrace)
+    if first:
+        parts.append(first)
+    parts.append(event_type)
+    return " ".join(p for p in parts if p).strip()
+
+
+def _first_failure_line(text: str) -> str:
+    if not text:
+        return ""
+    for line in text.splitlines():
+        lower = line.lower()
+        if any(kw in lower for kw in ("error", "exception", "failed", "traceback", "fatal")):
+            return line.strip()[:200]
+    return ""
+
+
+def _slugify(text: str) -> str:
+    out = []
+    for ch in text.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "-", "_", ".", "/"):
+            out.append("-")
+    slug = "".join(out).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug[:80]
+
+
+def _templated_runbook(slug: str, event_type: str, summary: str, stacktrace: str) -> str:
+    header = f"# Runbook: {slug}\n\n"
+    meta = (
+        f"- **Source event:** `{event_type}`\n"
+        f"- **Generated by:** Tracebow agent (stub LLM)\n"
+        f"- **Review status:** unreviewed — human editor should verify and refine\n\n"
+    )
+    body = (
+        "## Observation\n\n"
+        f"{summary.strip() or 'No summary was produced.'}\n\n"
+        "## Stacktrace (tail)\n\n"
+        "```\n"
+        f"{(stacktrace or '(no stacktrace captured)').strip()}\n"
+        "```\n\n"
+        "## Proposed fix\n\n"
+        "_Pending human review._\n"
+    )
+    return header + meta + body

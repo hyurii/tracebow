@@ -1,0 +1,137 @@
+name: Snyk Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * 1" # weekly Monday 08:00 UTC (offset from other scans)
+
+concurrency:
+  group: snyk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  snyk-python:
+    name: "Snyk: Python (agent)"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: snyk/actions/python-3.12@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=agent/pyproject.toml --severity-threshold=high --sarif-file-output=snyk-python.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('snyk-python.sarif') != '' }}
+        with:
+          sarif_file: snyk-python.sarif
+          category: snyk-python
+
+  snyk-node:
+    name: "Snyk: Node.js (portal)"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=portal/package.json --severity-threshold=high --sarif-file-output=snyk-node.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('snyk-node.sarif') != '' }}
+        with:
+          sarif_file: snyk-node.sarif
+          category: snyk-node
+
+  snyk-go:
+    name: "Snyk: Go (CLI)"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: snyk/actions/golang@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --file=tracebow-cli/go.mod --severity-threshold=high --sarif-file-output=snyk-go.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('snyk-go.sarif') != '' }}
+        with:
+          sarif_file: snyk-go.sarif
+          category: snyk-go
+
+  snyk-docker:
+    name: "Snyk: Docker (${{ matrix.component }})"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      matrix:
+        component: [agent, portal]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.component }}
+          load: true
+          tags: tracebow/${{ matrix.component }}:snyk
+          cache-from: type=gha
+
+      - uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: tracebow/${{ matrix.component }}:snyk
+          args: --severity-threshold=high --sarif-file-output=snyk-docker-${{ matrix.component }}.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles(format('snyk-docker-{0}.sarif', matrix.component)) != '' }}
+        with:
+          sarif_file: snyk-docker-${{ matrix.component }}.sarif
+          category: snyk-docker-${{ matrix.component }}
+
+  snyk-iac:
+    name: "Snyk: IaC"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: snyk/actions/iac@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --sarif-file-output=snyk-iac.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('snyk-iac.sarif') != '' }}
+        with:
+          sarif_file: snyk-iac.sarif
+          category: snyk-iac

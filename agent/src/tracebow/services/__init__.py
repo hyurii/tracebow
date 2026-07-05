@@ -1,1 +1,1 @@
-"""Core services: retrieval, graph, orchestration."""
+"""Non-LLM services (wiki, secrets)."""

@@ -1,0 +1,7 @@
+# Snyk policy file — controls how Snyk behaves for this project.
+# See https://docs.snyk.io/scan-using-snyk/policies/the-.snyk-file
+version: v1.25.0
+language-settings:
+  python: "3.12"
+ignore: {}
+patch: {}
