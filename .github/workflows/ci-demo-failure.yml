@@ -1,5 +1,9 @@
 # Intentionally failing workflow for Tracebow RCA integration testing.
 #
+# Zero-egress: runs on a self-hosted runner in the same network as Tracebow
+# (see docker-compose.ci-demo.yml profile `github-runner`). Posts failure logs to
+# http://agent:8080 — no ngrok or public URL required.
+#
 # Triggers:
 #   - workflow_dispatch (manual)
 #   - schedule every 6 hours
@@ -23,7 +27,9 @@ concurrency:
 jobs:
   failing-build:
     name: "Demo: compile & test (fails)"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, tracebow, zero-egress]
+    env:
+      TRACEBOW_ANALYZE_URL: http://agent:8080/api/v1/analyze
     steps:
       - name: Simulate build log
         run: |
@@ -42,22 +48,9 @@ jobs:
           echo "Running unit tests..."
           exit 1
 
-      - name: Upload failure log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-log
-          path: failure.log
-
       - name: Notify Tracebow (analyze endpoint with logs)
         if: failure()
-        env:
-          ANALYZE_URL: ${{ secrets.TRACEBOW_ANALYZE_URL }}
         run: |
-          if [ -z "$ANALYZE_URL" ]; then
-            echo "TRACEBOW_ANALYZE_URL not set — skipping analyze POST"
-            exit 0
-          fi
           LOG=$(cat failure.log)
           jq -n \
             --arg repository "${{ github.repository }}" \
@@ -65,7 +58,7 @@ jobs:
             --arg log_content "$LOG" \
             --arg build_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{repository: $repository, job_name: $job_name, log_content: $log_content, build_url: $build_url}' \
-          | curl -sS -X POST "$ANALYZE_URL" \
+          | curl -sS -X POST "${TRACEBOW_ANALYZE_URL}" \
               -H "Content-Type: application/json" \
               -d @- \
           || true

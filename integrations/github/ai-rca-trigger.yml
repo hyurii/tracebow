@@ -1,11 +1,11 @@
-# Tracebow AI RCA Integration - GitHub Actions
-# This workflow runs when your main CI workflow completes (including failures).
+# Tracebow AI RCA Integration - GitHub Actions (zero-egress / self-hosted)
 #
-# Add to .github/workflows/ai-rca-trigger.yml
+# Copy to .github/workflows/tracebow-rca-trigger.yml
 #
 # Prerequisites:
-# - TRACEBOW_WEBHOOK_URL secret (e.g. http://your-tracebow-host:8080/api/webhooks/failure)
-# - GITHUB_TOKEN (default) for fetching workflow logs
+# - Self-hosted runner on the same network as Tracebow (labels: self-hosted, tracebow)
+# - GITHUB_TOKEN on the Tracebow server (enables /webhooks/github and outbound API tools)
+# - Runner can reach http://agent:8080 (Docker service name or internal hostname)
 
 name: AI RCA on Failure
 
@@ -17,22 +17,30 @@ on:
 
 jobs:
   trigger-rca:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, tracebow, zero-egress]
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    env:
+      TRACEBOW_WEBHOOK_URL: http://agent:8080/api/v1/webhooks/github
     steps:
       - name: Notify Tracebow
-        env:
-          WEBHOOK_URL: ${{ secrets.TRACEBOW_WEBHOOK_URL }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
-          payload=$(jq -n \
-            --arg source "github" \
-            --arg repo "$REPO" \
-            --arg run_id "$RUN_ID" \
-            --arg pr "$PR_NUMBER" \
-            '{source: $source, repo: $repo, run_id: $run_id, pr_number: $pr}')
-          curl -s -X POST "$WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "$payload" || true
+          RUN_JSON='${{ toJson(github.event.workflow_run) }}'
+
+          jq -n \
+            --arg repository "${{ github.repository }}" \
+            --argjson run "$RUN_JSON" \
+            --arg event "workflow_run" \
+            '{
+              repository: $repository,
+              run_id: $run.id,
+              workflow_name: $run.name,
+              head_branch: $run.head_branch,
+              head_sha: $run.head_sha,
+              run_url: $run.html_url,
+              event: $event,
+              pull_request_number: ($run.pull_requests[0].number // null)
+            }' \
+          | curl -sS -X POST "${TRACEBOW_WEBHOOK_URL}" \
+              -H "Content-Type: application/json" \
+              -d @- \
+          || true

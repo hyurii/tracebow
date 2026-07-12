@@ -1,0 +1,86 @@
+# Tracebow — CI demo overlay.
+#
+# Adds Jenkins (real failing job) and an optional self-hosted GitHub Actions runner.
+# All failure traffic stays on the internal Docker network (zero egress via tunnels).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.ci-demo.yml up -d --build
+#   ./scripts/jenkins-seed-demo-job.sh
+#   ./scripts/github-runner-up.sh    # real GitHub Actions → Tracebow
+#
+# Jenkins UI: http://localhost:${JENKINS_PORT:-8081}  (admin / admin)
+# Trigger the demo job manually: Build Now on "tracebow-demo-failure"
+#
+# Set in .env (or export) before starting:
+#   JENKINS_URL=http://jenkins:8080
+#   JENKINS_USER=admin
+#   JENKINS_API_TOKEN=admin
+#   GITHUB_TOKEN=<github-pat>   # required for /webhooks/github + runner registration
+#   GITHUB_REPO=hyurii/tracebow # repo for self-hosted runner
+#
+# Optional fake webhooks (off by default):
+#   CI_DEMO_SIMULATOR_ENABLED=false
+
+services:
+  jenkins:
+    build: ./integrations/jenkins
+    ports:
+      - "${JENKINS_PORT:-8081}:8080"
+    environment:
+      TRACEBOW_WEBHOOK_URL: http://agent:8080/api/v1/webhooks/jenkins
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      CASC_JENKINS_CONFIG: /usr/share/jenkins/ref/casc_configs
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    depends_on:
+      agent:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  failure-simulator:
+    image: curlimages/curl:8.12.1
+    profiles:
+      - ci-demo-simulator
+    environment:
+      TRACEBOW_AGENT_URL: http://agent:8080
+      JENKINS_URL: http://jenkins:8080
+      JENKINS_USER: ${JENKINS_USER:-admin}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-admin}
+      SIMULATOR_INTERVAL_SEC: ${CI_DEMO_SIMULATOR_INTERVAL_SEC:-300}
+      SIMULATOR_ENABLED: ${CI_DEMO_SIMULATOR_ENABLED:-false}
+      CI_DEMO_SIMULATOR_GITHUB: ${CI_DEMO_SIMULATOR_GITHUB:-false}
+    volumes:
+      - ./integrations/simulator/simulate-failures.sh:/simulate-failures.sh:ro
+    entrypoint: ["/bin/sh", "/simulate-failures.sh"]
+    depends_on:
+      agent:
+        condition: service_started
+    restart: unless-stopped
+
+  github-runner:
+    image: myoung34/github-runner:latest
+    profiles:
+      - github-runner
+    environment:
+      REPO_URL: https://github.com/${GITHUB_REPO:-hyurii/tracebow}
+      RUNNER_TOKEN: ${GITHUB_RUNNER_TOKEN:?Set GITHUB_RUNNER_TOKEN or run scripts/github-runner-up.sh}
+      RUNNER_NAME: ${GITHUB_RUNNER_NAME:-tracebow-local}
+      RUNNER_WORKDIR: /tmp/runner
+      LABELS: self-hosted,linux,tracebow,zero-egress
+      DISABLE_AUTOMATIC_DEREGISTRATION: "true"
+    volumes:
+      - github_runner:/tmp/runner
+    depends_on:
+      agent:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  jenkins_home:
+  github_runner:
