@@ -1,0 +1,71 @@
+# Intentionally failing workflow for Tracebow RCA integration testing.
+#
+# Triggers:
+#   - workflow_dispatch (manual)
+#   - schedule every 6 hours
+#
+# Does NOT run on push/PR — it would break the main CI badge.
+
+name: CI Demo Failure
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-demo-failure
+  cancel-in-progress: false
+
+jobs:
+  failing-build:
+    name: "Demo: compile & test (fails)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate build log
+        run: |
+          cat > failure.log <<'EOF'
+          [INFO] Building tracebow-demo 1.0.0-SNAPSHOT
+          [INFO] --- compiler:3.11.0:compile (default-compile) @ tracebow-demo ---
+          [ERROR] /workspace/src/main/java/com/example/PaymentService.java:[42,17] cannot find symbol
+            symbol:   method validateCardExpiry(java.lang.String)
+            location: variable cardValidator of type com.example.CardValidator
+          [ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile
+          [INFO] BUILD FAILURE
+          EOF
+
+      - name: Run tests (expected failure)
+        run: |
+          echo "Running unit tests..."
+          exit 1
+
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-log
+          path: failure.log
+
+      - name: Notify Tracebow (analyze endpoint with logs)
+        if: failure()
+        env:
+          ANALYZE_URL: ${{ secrets.TRACEBOW_ANALYZE_URL }}
+        run: |
+          if [ -z "$ANALYZE_URL" ]; then
+            echo "TRACEBOW_ANALYZE_URL not set — skipping analyze POST"
+            exit 0
+          fi
+          LOG=$(cat failure.log)
+          jq -n \
+            --arg repository "${{ github.repository }}" \
+            --arg job_name "${{ github.workflow }}" \
+            --arg log_content "$LOG" \
+            --arg build_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{repository: $repository, job_name: $job_name, log_content: $log_content, build_url: $build_url}' \
+          | curl -sS -X POST "$ANALYZE_URL" \
+              -H "Content-Type: application/json" \
+              -d @- \
+          || true

@@ -1,0 +1,54 @@
+# Triggers Tracebow RCA when the CI Demo Failure workflow fails.
+#
+# Prerequisites (repository secrets):
+#   TRACEBOW_WEBHOOK_URL — e.g. https://tracebow.example.com/api/v1/webhooks/github
+#   GITHUB_TOKEN on the Tracebow server for outbound GitHub API access
+#
+# For local Tracebow, expose the agent (ngrok, tailscale funnel, etc.) and set the
+# secret to your public URL. GitHub-hosted runners cannot reach localhost.
+
+name: Tracebow RCA on CI Demo Failure
+
+on:
+  workflow_run:
+    workflows: ["CI Demo Failure"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-rca:
+    name: "Notify Tracebow"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: POST GitHub webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.TRACEBOW_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "TRACEBOW_WEBHOOK_URL not set — skipping webhook (add repository secret)"
+            exit 0
+          fi
+
+          RUN_JSON='${{ toJson(github.event.workflow_run) }}'
+
+          jq -n \
+            --arg repository "${{ github.repository }}" \
+            --argjson run "$RUN_JSON" \
+            --arg event "workflow_run" \
+            '{
+              repository: $repository,
+              run_id: $run.id,
+              workflow_name: $run.name,
+              head_branch: $run.head_branch,
+              head_sha: $run.head_sha,
+              run_url: $run.html_url,
+              event: $event,
+              pull_request_number: ($run.pull_requests[0].number // null)
+            }' \
+          | curl -sS -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d @- \
+          || true
